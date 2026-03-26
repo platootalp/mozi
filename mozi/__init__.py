@@ -15,20 +15,24 @@ Import the package:
     import mozi
 """
 
+from __future__ import annotations
+
+from mozi.core import (
+    MoziConfigError,
+    MoziError,
+    MoziRuntimeError,
+    MoziSessionError,
+    MoziToolError,
+)
+
 __version__ = "0.1.0"
 __author__: str = "Mozi Team"
 
-
-class MoziError(Exception):
-    """Base exception for all Mozi errors.
-
-    All custom exceptions in the mozi package should inherit from this class.
-    """
-
-    pass
-
-
 __all__ = [
     "MoziError",
+    "MoziConfigError",
+    "MoziRuntimeError",
+    "MoziToolError",
+    "MoziSessionError",
     "__version__",
 ]
