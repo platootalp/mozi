@@ -176,6 +176,14 @@ class TestComplexityThreshold:
         with pytest.raises(ValidationError):
             ComplexityThreshold(medium_max=150)
 
+    def test_validate_thresholds_raises_on_invalid(self) -> None:
+        """Test that validate_thresholds raises ValueError when simple_max >= medium_max."""
+        config = MoziConfig(
+            complexity_threshold=ComplexityThreshold(simple_max=50, medium_max=40)
+        )
+        with pytest.raises(ValueError, match="simple_max must be less than medium_max"):
+            config.validate_thresholds()
+
 
 class TestMoziConfig:
     """Tests for MoziConfig schema."""

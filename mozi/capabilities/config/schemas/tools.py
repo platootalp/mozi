@@ -1,4 +1,4 @@
-"""Tool policy configuration schema for Mozi AI Coding Agent.
+"""Tool configuration schema for Mozi AI Coding Agent.
 
 This module defines the Pydantic schemas for tool policies (tools.json).
 It includes allowlist/blocklist, sandbox settings, and permission levels.
