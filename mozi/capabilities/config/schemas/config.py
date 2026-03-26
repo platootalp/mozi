@@ -48,14 +48,6 @@ class StorageTier(StrEnum):
     ARCHIVE = "archive"
 
 
-class SandboxMode(StrEnum):
-    """Sandbox execution modes."""
-
-    OFF = "off"
-    NON_MAIN = "non-main"
-    ALL = "all"
-
-
 class StorageTierConfig(BaseModel):
     """Configuration for a single storage tier.
 
