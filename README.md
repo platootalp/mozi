@@ -1,2 +1,2 @@
 # mozi
-Mozi: Build More, Waste Less.
+Mozi: Build More, Waste     

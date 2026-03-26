@@ -1,0 +1,138 @@
+# Pre-commit hooks 配置
+# 安装: pip install pre-commit && pre-commit install
+# 运行: pre-commit run --all-files
+
+repos:
+  # ==========================================
+  # Python 代码质量
+  # ==========================================
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+        stages: [commit]
+      - id: ruff-format
+        stages: [commit]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.9.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]
+        stages: [commit]
+        args: [--strict]
+
+  # ==========================================
+  # TypeScript 代码质量
+  # ==========================================
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v8.56.0
+    hooks:
+      - id: eslint
+        files: \.[jt]sx?$
+        types: [file]
+        additional_dependencies:
+          - eslint@8.56.0
+          - '@typescript-eslint/eslint-plugin'
+          - '@typescript-eslint/parser'
+        stages: [commit]
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.1.0
+    hooks:
+      - id: prettier
+        types_or: [javascript, jsx, ts, tsx, json, yaml, markdown]
+        stages: [commit]
+
+  # ==========================================
+  # 安全检查
+  # ==========================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      # 禁止提交私钥
+      - id: detect-private-key
+        stages: [commit]
+
+      # 禁止提交大文件（>500KB）
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+        stages: [commit]
+
+      # 检查 JSON/YAML 语法
+      - id: check-json
+        stages: [commit]
+      - id: check-yaml
+        stages: [commit]
+
+      # 检查合并冲突标记
+      - id: check-merge-conflict
+        stages: [commit]
+
+      # 检查尾随空格
+      - id: trailing-whitespace
+        stages: [commit]
+
+      # 检查文件末尾空行
+      - id: end-of-file-fixer
+        stages: [commit]
+
+      # 禁止混合行尾（LF/CRLF）
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+        stages: [commit]
+
+  # ==========================================
+  # Python 安全
+  # ==========================================
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.7
+    hooks:
+      - id: bandit
+        args: ['-c', 'pyproject.toml']
+        additional_dependencies: ['bandit[toml]']
+        stages: [commit]
+
+  # ==========================================
+  # 提交信息检查
+  # ==========================================
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v3.18.0
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]
+
+  # ==========================================
+  # GitHub Actions 检查
+  # ==========================================
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.6.27
+    hooks:
+      - id: actionlint
+        stages: [commit]
+
+  # ==========================================
+  # 分支命名检查
+  # ==========================================
+  - repo: local
+    hooks:
+      - id: branch-name-check
+        name: Branch name check
+        entry: bash -c 'BRANCH=$(git rev-parse --abbrev-ref HEAD); if [[ "$BRANCH" =~ ^(feature|fix|docs|refactor|hotfix)/[a-z0-9-]+$|^main$|^develop$ ]]; then exit 0; else echo "Error: Branch name must match pattern: (feature|fix|docs|refactor|hotfix)/description or be main/develop"; exit 1; fi'
+        language: system
+        stages: [commit]
+        pass_filenames: false
+        always_run: true
+
+ci:
+  autofix_commit_msg: |
+    ci: auto fixes from pre-commit hooks
+
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: 'ci: pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false
