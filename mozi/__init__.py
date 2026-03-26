@@ -16,7 +16,7 @@ Import the package:
 """
 
 __version__ = "0.1.0"
-__author__ = "Mozi Team"
+__author__: str = "Mozi Team"
 
 
 class MoziError(Exception):
