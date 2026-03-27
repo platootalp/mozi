@@ -78,24 +78,123 @@ For each batch, generate:
 
 ## Output Format
 
-Your development plan should include:
+**IMPORTANT: The development plan MUST be output as a JSON document, NOT Markdown.**
 
-1. **Executive Summary**: High-level overview of the plan
-2. **Batch Overview**: Table showing all batches and their relationships
-3. **Detailed Batch Plans**: For each batch:
-   - Batch ID and name
-   - Objectives
-   - Task list with:
-     - Task ID (e.g., D1-T001)
-     - Task name
-     - Description
-     - Estimated effort (days)
-     - Acceptance criteria
-     - Dependencies (other task IDs)
-   - Worktree configuration
-   - Success criteria
-4. **Dependency Graph**: Visual or text representation of inter-batch dependencies
-5. **Risk Register**: Identified risks and mitigation strategies
+The JSON output must follow this structure:
+
+```json
+{
+  "metadata": {
+    "plan_id": "<YYYY-MM-DD-project-version>",
+    "generated": "<YYYY-MM-DD>",
+    "total_effort_days": <number>,
+    "total_tasks": <number>,
+    "total_batches": <number>,
+    "description": "<plan description>"
+  },
+  "batches": [
+    {
+      "id": "<D0|D1|D2|Dn>",
+      "name": "<batch name>",
+      "description": "<batch purpose>",
+      "tasks": ["T001", "T002", ...],
+      "total_effort_days": <number>,
+      "status": "pending",
+      "owner": null,
+      "planned_start": "<YYYY-MM-DD>",
+      "planned_end": "<YYYY-MM-DD>",
+      "progress_percent": 0,
+      "dependencies": ["<prior batch ids>"],
+      "deliverables": ["<file paths or modules>"],
+      "success_criteria": ["<criteria>"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "T001",
+      "name": "<task name>",
+      "phase": "<phase name>",
+      "effort_days": <number>,
+      "complexity": <1-5>,
+      "status": "pending",
+      "assignee": null,
+      "priority": "P0|P1|P2",
+      "planned_start": "<YYYY-MM-DD>",
+      "planned_end": "<YYYY-MM-DD>",
+      "completed_at": null,
+      "depends_on": ["<task ids>"],
+      "blocked_by": ["<task ids>"],
+      "batch": "<batch id>",
+      "deliverables": ["<files or modules>"],
+      "parallel_with": ["<task ids>"],
+      "independent": <boolean>,
+      "verification_method": "<how to verify completion, e.g., pytest tests/...>"
+    }
+  ],
+  "worktrees": [
+    {
+      "path": "./worktrees/<worktree-name>",
+      "branch": "feature/<feature-name>",
+      "base_branch": "<parent branch>",
+      "batch_id": "<batch id>",
+      "tasks": ["T001", "T002", ...]
+    }
+  ],
+  "merge_strategy": {
+    "description": "<merge description>",
+    "sequence": [
+      {"branch": "<branch name>", "merges_to": "<target branch>"}
+    ]
+  }
+}
+```
+
+### Required Sections
+
+1. **metadata**: Plan overview with total effort, task count, batch count
+2. **batches[]**: All batches with id, name, tasks, dependencies, deliverables, success_criteria
+3. **tasks[]**: Flat list of ALL tasks with full dependency tracking (depends_on, blocked_by, parallel_with)
+4. **worktrees[]**: Worktree definitions mapping path → branch → batch → tasks
+5. **merge_strategy**: Git merge sequence from feature branches to main
+
+### Task Fields
+
+Each task in `tasks[]` MUST include:
+- `id`: Unique task identifier (T001, T002, etc.)
+- `name`: Clear, actionable task name
+- `phase`: Phase name for grouping
+- `effort_days`: Estimated effort in days
+- `complexity`: Complexity rating 1-5
+- `status`: Task status (pending/in_progress/completed/blocked)
+- `assignee`: Developer assigned (null if unassigned)
+- `priority`: Priority level (P0/P1/P2)
+- `planned_start`: Planned start date (YYYY-MM-DD)
+- `planned_end`: Planned end date (YYYY-MM-DD)
+- `completed_at`: Actual completion timestamp (null if not done)
+- `depends_on[]`: Array of task IDs this task depends on (must be completed first)
+- `blocked_by[]`: Array of task IDs that block this task (inverse of depends_on)
+- `batch`: Which batch this task belongs to
+- `deliverables[]`: Files/modules produced
+- `parallel_with[]`: (optional) Tasks that can run in parallel within the batch
+- `independent`: (optional) true if task has no real dependencies within batch
+- `verification_method`: How to verify task completion (e.g., "pytest tests/unit/core/test_error.py")
+
+### Batch Fields
+
+Each batch in `batches[]` MUST include:
+- `id`: Batch identifier (D0, D1, D2, etc.)
+- `name`: Batch name
+- `description`: Batch purpose and scope
+- `tasks[]`: Array of task IDs in this batch
+- `total_effort_days`: Total estimated effort
+- `status`: Batch status (pending/in_progress/completed/blocked)
+- `owner`: Batch owner (null if unassigned)
+- `planned_start`: Planned start date (YYYY-MM-DD)
+- `planned_end`: Planned end date (YYYY-MM-DD)
+- `progress_percent`: Completion percentage (0-100)
+- `dependencies[]`: Prior batch IDs this batch depends on
+- `deliverables[]`: Files/modules produced
+- `success_criteria[]`: Criteria for batch completion
 
 ## Decision Framework
 
