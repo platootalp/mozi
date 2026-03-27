@@ -24,7 +24,7 @@ Create an Anthropic adapter:
 from __future__ import annotations
 
 import os
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 import anthropic
 from anthropic.types import MessageParam, TextBlock
@@ -60,7 +60,7 @@ class AnthropicModelAdapter(ModelAdapter):
         print(response.content)
     """
 
-    DEFAULT_MODEL: str = "claude-sonnet-4-20250514"
+    DEFAULT_MODEL: ClassVar[str] = "claude-sonnet-4-20250514"
 
     def __init__(
         self,
@@ -109,6 +109,11 @@ class AnthropicModelAdapter(ModelAdapter):
             timeout=self._timeout,
             max_retries=max_retries,
         )
+        self._last_usage: dict[str, int] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
 
     async def complete(
         self,
@@ -150,16 +155,17 @@ class AnthropicModelAdapter(ModelAdapter):
             )
 
             text_block = cast(TextBlock, response.content[0])
+            self._last_usage = {
+                "prompt_tokens": response.usage.input_tokens,
+                "completion_tokens": response.usage.output_tokens,
+                "total_tokens": (
+                    response.usage.input_tokens + response.usage.output_tokens
+                ),
+            }
             return ModelResponse(
                 content=text_block.text,
                 model=response.model,
-                usage={
-                    "prompt_tokens": response.usage.input_tokens,
-                    "completion_tokens": response.usage.output_tokens,
-                    "total_tokens": (
-                        response.usage.input_tokens + response.usage.output_tokens
-                    ),
-                },
+                usage=self._last_usage,
                 stop_reason=response.stop_reason,
             )
         except anthropic.APIError as e:
@@ -222,16 +228,17 @@ class AnthropicModelAdapter(ModelAdapter):
             )
 
             text_block = cast(TextBlock, response.content[0])
+            self._last_usage = {
+                "prompt_tokens": response.usage.input_tokens,
+                "completion_tokens": response.usage.output_tokens,
+                "total_tokens": (
+                    response.usage.input_tokens + response.usage.output_tokens
+                ),
+            }
             return ModelResponse(
                 content=text_block.text,
                 model=response.model,
-                usage={
-                    "prompt_tokens": response.usage.input_tokens,
-                    "completion_tokens": response.usage.output_tokens,
-                    "total_tokens": (
-                        response.usage.input_tokens + response.usage.output_tokens
-                    ),
-                },
+                usage=self._last_usage,
                 stop_reason=response.stop_reason,
             )
         except anthropic.APIError as e:
@@ -258,8 +265,4 @@ class AnthropicModelAdapter(ModelAdapter):
         dict[str, int]
             Dictionary with prompt_tokens, completion_tokens, and total_tokens.
         """
-        return {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        }
+        return self._last_usage

@@ -19,6 +19,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
+    "anthropic>=0.18",
     "pydantic>=2.0",
     "aiosqlite>=0.19",
 ]
