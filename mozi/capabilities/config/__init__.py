@@ -20,11 +20,12 @@ from mozi.capabilities.config.schemas import (
     AgentRegistry,
     ComplexityThreshold,
     LogFormat,
-    LogLevel,
     LoggingConfig,
+    LogLevel,
     ModelFallback,
     ModelProvider,
     MoziConfig,
+    SandboxMode,
     SecurityConfig,
     StorageConfig,
     StorageTier,
@@ -33,7 +34,6 @@ from mozi.capabilities.config.schemas import (
     ToolPermission,
     ToolPolicy,
     ToolsConfig,
-    SandboxMode,
 )
 
 __all__ = [
