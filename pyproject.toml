@@ -22,7 +22,12 @@ dependencies = [
     "anthropic>=0.18",
     "pydantic>=2.0",
     "aiosqlite>=0.19",
+    "typer>=0.12",
+    "rich>=13.0",
 ]
+
+[project.scripts]
+mozi = "mozi.cli.main:app"
 
 [project.optional-dependencies]
 dev = [
@@ -74,6 +79,7 @@ exclude = ["tests/"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+asyncio_mode = "auto"
 addopts = "-v --cov=mozi --cov-report=term-missing"
 markers = [
     "unit: Unit tests",
