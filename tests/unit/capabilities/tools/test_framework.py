@@ -27,7 +27,6 @@ from mozi.capabilities.tools.builtin import (
     WriteFileTool,
     register_all,
 )
-from mozi.core.error import MoziToolError
 
 
 class DummyTool(Tool):
