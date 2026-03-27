@@ -82,7 +82,6 @@ class SQLiteDB:
         self.db_path: str = db_path
         self.connection: aiosqlite.Connection | None = None
         self._schema: DatabaseSchema = schema or DatabaseSchema()
-        self._transaction_nesting: int = 0
 
     async def initialize(self) -> None:
         """Initialize database connection and create tables.

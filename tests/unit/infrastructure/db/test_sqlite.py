@@ -6,6 +6,9 @@ Uses in-memory database for isolation.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import aiosqlite
 import pytest
 
 from mozi.core.error import MoziRuntimeError
@@ -470,3 +473,143 @@ class TestModuleExports:
         """Test get_db_path is importable from module."""
         from mozi.infrastructure.db import get_db_path
         assert get_db_path is not None
+
+
+@pytest.mark.unit
+class TestSQLiteDBExceptionHandlers:
+    """Tests for SQLiteDB exception handlers."""
+
+    @pytest.mark.asyncio
+    async def test_initialize_connect_raises(self) -> None:
+        """Test initialize handles connection error."""
+        db = SQLiteDB(":memory:")
+
+        with patch("aiosqlite.connect") as mock_connect:
+            mock_connect.side_effect = aiosqlite.Error("Connection failed")
+
+            with pytest.raises(MoziRuntimeError) as exc_info:
+                await db.initialize()
+
+            assert "Failed to initialize database" in str(exc_info.value.message)
+            assert exc_info.value.cause is not None
+
+    @pytest.mark.asyncio
+    async def test_initialize_executescript_raises(self) -> None:
+        """Test initialize handles executescript error."""
+        db = SQLiteDB(":memory:")
+        mock_conn = MagicMock(spec=aiosqlite.Connection)
+        mock_conn.row_factory = aiosqlite.Row
+        mock_conn.executescript = AsyncMock(side_effect=aiosqlite.Error("Script failed"))
+        mock_conn.close = AsyncMock()
+
+        with patch("aiosqlite.connect", new_callable=AsyncMock) as mock_connect:
+            mock_connect.return_value = mock_conn
+
+            with pytest.raises(MoziRuntimeError) as exc_info:
+                await db.initialize()
+
+            assert "Failed to initialize database" in str(exc_info.value.message)
+            assert exc_info.value.cause is not None
+
+    @pytest.mark.asyncio
+    async def test_close_raises(self) -> None:
+        """Test close handles connection close error."""
+        db = SQLiteDB(":memory:")
+        mock_conn = MagicMock(spec=aiosqlite.Connection)
+        mock_conn.close = AsyncMock(side_effect=aiosqlite.Error("Close failed"))
+        db.connection = mock_conn
+
+        with pytest.raises(MoziRuntimeError) as exc_info:
+            await db.close()
+
+        assert "Failed to close database connection" in str(exc_info.value.message)
+        assert exc_info.value.cause is not None
+        assert db.connection is None
+
+    @pytest.mark.asyncio
+    async def test_execute_raises(self) -> None:
+        """Test execute handles query error."""
+        db = SQLiteDB(":memory:")
+        mock_conn = MagicMock(spec=aiosqlite.Connection)
+        mock_conn.execute = AsyncMock(side_effect=aiosqlite.Error("Query failed"))
+        db.connection = mock_conn
+
+        with pytest.raises(MoziRuntimeError) as exc_info:
+            await db.execute("SELECT 1")
+
+        assert "Failed to execute query" in str(exc_info.value.message)
+        assert exc_info.value.cause is not None
+
+    @pytest.mark.asyncio
+    async def test_execute_many_raises(self) -> None:
+        """Test execute_many handles error."""
+        db = SQLiteDB(":memory:")
+        mock_conn = MagicMock(spec=aiosqlite.Connection)
+        mock_conn.executemany = AsyncMock(side_effect=aiosqlite.Error("Many failed"))
+        db.connection = mock_conn
+
+        with pytest.raises(MoziRuntimeError) as exc_info:
+            await db.execute_many("SELECT 1", [])
+
+        assert "Failed to execute many" in str(exc_info.value.message)
+        assert exc_info.value.cause is not None
+
+    @pytest.mark.asyncio
+    async def test_fetchall_raises(self) -> None:
+        """Test fetchall handles query error."""
+        db = SQLiteDB(":memory:")
+        mock_conn = MagicMock(spec=aiosqlite.Connection)
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall = AsyncMock(side_effect=aiosqlite.Error("Fetchall failed"))
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+        db.connection = mock_conn
+
+        with pytest.raises(MoziRuntimeError) as exc_info:
+            await db.fetchall("SELECT 1")
+
+        assert "Failed to fetchall" in str(exc_info.value.message)
+        assert exc_info.value.cause is not None
+
+    @pytest.mark.asyncio
+    async def test_fetchone_raises(self) -> None:
+        """Test fetchone handles query error."""
+        db = SQLiteDB(":memory:")
+        mock_conn = MagicMock(spec=aiosqlite.Connection)
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone = AsyncMock(side_effect=aiosqlite.Error("Fetchone failed"))
+        mock_conn.execute = AsyncMock(return_value=mock_cursor)
+        db.connection = mock_conn
+
+        with pytest.raises(MoziRuntimeError) as exc_info:
+            await db.fetchone("SELECT 1")
+
+        assert "Failed to fetchone" in str(exc_info.value.message)
+        assert exc_info.value.cause is not None
+
+    @pytest.mark.asyncio
+    async def test_commit_raises(self) -> None:
+        """Test commit handles error."""
+        db = SQLiteDB(":memory:")
+        mock_conn = MagicMock(spec=aiosqlite.Connection)
+        mock_conn.commit = AsyncMock(side_effect=aiosqlite.Error("Commit failed"))
+        db.connection = mock_conn
+
+        with pytest.raises(MoziRuntimeError) as exc_info:
+            await db.commit()
+
+        assert "Failed to commit transaction" in str(exc_info.value.message)
+        assert exc_info.value.cause is not None
+
+    @pytest.mark.asyncio
+    async def test_rollback_raises(self) -> None:
+        """Test rollback handles error."""
+        db = SQLiteDB(":memory:")
+        mock_conn = MagicMock(spec=aiosqlite.Connection)
+        mock_conn.rollback = AsyncMock(side_effect=aiosqlite.Error("Rollback failed"))
+        db.connection = mock_conn
+
+        with pytest.raises(MoziRuntimeError) as exc_info:
+            await db.rollback()
+
+        assert "Failed to rollback transaction" in str(exc_info.value.message)
+        assert exc_info.value.cause is not None
