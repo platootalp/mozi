@@ -26,7 +26,11 @@ from datetime import datetime
 from typing import Any
 
 from mozi.core.error import MoziSessionError
-from mozi.orchestrator.session.context import SessionContext
+from mozi.orchestrator.session.context import (
+    ComplexityLevel,
+    SessionContext,
+    SessionState,
+)
 
 
 class SessionManager:
@@ -56,7 +60,7 @@ class SessionManager:
     async def create_session(
         self,
         complexity_score: int = 0,
-        complexity_level: str = "SIMPLE",
+        complexity_level: ComplexityLevel = ComplexityLevel.SIMPLE,
         metadata: dict[str, Any] | None = None,
     ) -> SessionContext:
         """Create a new session.
@@ -65,8 +69,8 @@ class SessionManager:
         ----------
         complexity_score : int, optional
             Initial complexity score (0-100). Defaults to 0.
-        complexity_level : str, optional
-            Initial complexity level. Defaults to "SIMPLE".
+        complexity_level : ComplexityLevel, optional
+            Initial complexity level. Defaults to ComplexityLevel.SIMPLE.
         metadata : dict[str, Any] | None, optional
             Initial metadata for the session. Defaults to None.
 
@@ -90,7 +94,7 @@ class SessionManager:
                 updated_at=now,
                 complexity_score=complexity_score,
                 complexity_level=complexity_level,
-                state="ACTIVE",
+                state=SessionState.ACTIVE,
                 metadata=metadata or {},
             )
 
@@ -187,16 +191,16 @@ class SessionManager:
 
     async def list_sessions(
         self,
-        state: str | None = None,
-        complexity_level: str | None = None,
+        state: SessionState | None = None,
+        complexity_level: ComplexityLevel | None = None,
     ) -> list[SessionContext]:
         """List sessions with optional filtering.
 
         Parameters
         ----------
-        state : str | None, optional
-            Filter by session state (e.g., "ACTIVE", "COMPLETED").
-        complexity_level : str | None, optional
+        state : SessionState | None, optional
+            Filter by session state (e.g., SessionState.ACTIVE).
+        complexity_level : ComplexityLevel | None, optional
             Filter by complexity level.
 
         Returns
@@ -279,11 +283,11 @@ class SessionManager:
         """
         session = await self.get_session(session_id)
 
-        if session.state != "ACTIVE":
+        if session.state != SessionState.ACTIVE:
             msg = f"Cannot pause session in state: {session.state}"
             raise MoziSessionError(msg, session_id=session_id)
 
-        session.state = "PAUSED"
+        session.state = SessionState.PAUSED
         session.updated_at = datetime.now()
         return await self.update_session(session)
 
@@ -307,11 +311,11 @@ class SessionManager:
         """
         session = await self.get_session(session_id)
 
-        if session.state != "PAUSED":
+        if session.state != SessionState.PAUSED:
             msg = f"Cannot resume session in state: {session.state}"
             raise MoziSessionError(msg, session_id=session_id)
 
-        session.state = "ACTIVE"
+        session.state = SessionState.ACTIVE
         session.updated_at = datetime.now()
         return await self.update_session(session)
 
@@ -334,7 +338,7 @@ class SessionManager:
             If session is not found.
         """
         session = await self.get_session(session_id)
-        session.state = "COMPLETED"
+        session.state = SessionState.COMPLETED
         session.updated_at = datetime.now()
         return await self.update_session(session)
 
@@ -357,7 +361,7 @@ class SessionManager:
             If session is not found.
         """
         session = await self.get_session(session_id)
-        session.state = "ABANDONED"
+        session.state = SessionState.ABANDONED
         session.updated_at = datetime.now()
         return await self.update_session(session)
 
@@ -372,7 +376,7 @@ class SessionManager:
         return [
             session_id
             for session_id, session in self._sessions.items()
-            if session.state == "ACTIVE"
+            if session.state == SessionState.ACTIVE
         ]
 
     async def session_exists(self, session_id: str) -> bool:

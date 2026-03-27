@@ -75,8 +75,8 @@ class TestSessionContextInit:
         assert ctx.created_at == now
         assert ctx.updated_at == now
         assert ctx.complexity_score == 0
-        assert ctx.complexity_level == "SIMPLE"
-        assert ctx.state == "ACTIVE"
+        assert ctx.complexity_level == ComplexityLevel.SIMPLE
+        assert ctx.state == SessionState.ACTIVE
         assert ctx.metadata == {}
         assert ctx.messages == []
         assert ctx.task_history == []
@@ -89,8 +89,8 @@ class TestSessionContextInit:
             created_at=now,
             updated_at=now,
             complexity_score=55,
-            complexity_level="MEDIUM",
-            state="PAUSED",
+            complexity_level=ComplexityLevel.MEDIUM,
+            state=SessionState.PAUSED,
             metadata={"user": "test_user"},
             messages=[{"role": "user", "content": "hello"}],
             task_history=[{"task_id": "task1", "description": "test"}],
@@ -98,8 +98,8 @@ class TestSessionContextInit:
 
         assert ctx.session_id == "sess_xyz789"
         assert ctx.complexity_score == 55
-        assert ctx.complexity_level == "MEDIUM"
-        assert ctx.state == "PAUSED"
+        assert ctx.complexity_level == ComplexityLevel.MEDIUM
+        assert ctx.state == SessionState.PAUSED
         assert ctx.metadata == {"user": "test_user"}
         assert len(ctx.messages) == 1
         assert len(ctx.task_history) == 1
@@ -117,8 +117,8 @@ class TestSessionContextMethods:
             created_at=now,
             updated_at=now,
             complexity_score=30,
-            complexity_level="SIMPLE",
-            state="ACTIVE",
+            complexity_level=ComplexityLevel.SIMPLE,
+            state=SessionState.ACTIVE,
         )
 
         result = ctx.to_dict()
@@ -149,7 +149,7 @@ class TestSessionContextMethods:
 
         assert ctx.session_id == "sess_from_dict"
         assert ctx.complexity_score == 45
-        assert ctx.complexity_level == "MEDIUM"
+        assert ctx.complexity_level == ComplexityLevel.MEDIUM
         assert ctx.metadata == {"key": "value"}
 
     def test_add_message(self) -> None:
@@ -248,8 +248,8 @@ class TestSessionManagerCreate:
 
         assert session.session_id.startswith("sess_")
         assert session.complexity_score == 0
-        assert session.complexity_level == "SIMPLE"
-        assert session.state == "ACTIVE"
+        assert session.complexity_level == ComplexityLevel.SIMPLE
+        assert session.state == SessionState.ACTIVE
         assert session.metadata == {}
 
     @pytest.mark.asyncio
@@ -259,11 +259,11 @@ class TestSessionManagerCreate:
 
         session = await manager.create_session(
             complexity_score=55,
-            complexity_level="MEDIUM",
+            complexity_level=ComplexityLevel.MEDIUM,
         )
 
         assert session.complexity_score == 55
-        assert session.complexity_level == "MEDIUM"
+        assert session.complexity_level == ComplexityLevel.MEDIUM
 
     @pytest.mark.asyncio
     async def test_create_session_with_metadata(self) -> None:
@@ -321,12 +321,12 @@ class TestSessionManagerUpdate:
         manager = SessionManager()
         session = await manager.create_session()
         session.complexity_score = 75
-        session.complexity_level = "COMPLEX"
+        session.complexity_level = ComplexityLevel.COMPLEX
 
         result = await manager.update_session(session)
 
         assert result.complexity_score == 75
-        assert result.complexity_level == "COMPLEX"
+        assert result.complexity_level == ComplexityLevel.COMPLEX
 
     @pytest.mark.asyncio
     async def test_update_nonexistent_session_raises(self) -> None:
@@ -388,8 +388,8 @@ class TestSessionManagerList:
     async def test_list_sessions_all(self) -> None:
         """Test list_sessions returns all sessions."""
         manager = SessionManager()
-        await manager.create_session(complexity_level="SIMPLE")
-        await manager.create_session(complexity_level="MEDIUM")
+        await manager.create_session(complexity_level=ComplexityLevel.SIMPLE)
+        await manager.create_session(complexity_level=ComplexityLevel.MEDIUM)
 
         result = await manager.list_sessions()
 
@@ -403,7 +403,7 @@ class TestSessionManagerList:
         paused = await manager.create_session()
         await manager.pause_session(paused.session_id)
 
-        result = await manager.list_sessions(state="ACTIVE")
+        result = await manager.list_sessions(state=SessionState.ACTIVE)
 
         assert len(result) == 1
         assert result[0].session_id == active.session_id
@@ -412,13 +412,13 @@ class TestSessionManagerList:
     async def test_list_sessions_filter_by_complexity(self) -> None:
         """Test list_sessions filters by complexity level."""
         manager = SessionManager()
-        await manager.create_session(complexity_level="SIMPLE")
-        await manager.create_session(complexity_level="COMPLEX")
+        await manager.create_session(complexity_level=ComplexityLevel.SIMPLE)
+        await manager.create_session(complexity_level=ComplexityLevel.COMPLEX)
 
-        result = await manager.list_sessions(complexity_level="SIMPLE")
+        result = await manager.list_sessions(complexity_level=ComplexityLevel.SIMPLE)
 
         assert len(result) == 1
-        assert result[0].complexity_level == "SIMPLE"
+        assert result[0].complexity_level == ComplexityLevel.SIMPLE
 
 
 @pytest.mark.unit
@@ -433,7 +433,7 @@ class TestSessionManagerStateTransitions:
 
         result = await manager.pause_session(session.session_id)
 
-        assert result.state == "PAUSED"
+        assert result.state == SessionState.PAUSED
 
     @pytest.mark.asyncio
     async def test_pause_non_active_session_raises(self) -> None:
@@ -456,7 +456,7 @@ class TestSessionManagerStateTransitions:
 
         result = await manager.resume_session(session.session_id)
 
-        assert result.state == "ACTIVE"
+        assert result.state == SessionState.ACTIVE
 
     @pytest.mark.asyncio
     async def test_resume_non_paused_session_raises(self) -> None:
@@ -477,7 +477,7 @@ class TestSessionManagerStateTransitions:
 
         result = await manager.complete_session(session.session_id)
 
-        assert result.state == "COMPLETED"
+        assert result.state == SessionState.COMPLETED
 
     @pytest.mark.asyncio
     async def test_abandon_session(self) -> None:
@@ -487,7 +487,7 @@ class TestSessionManagerStateTransitions:
 
         result = await manager.abandon_session(session.session_id)
 
-        assert result.state == "ABANDONED"
+        assert result.state == SessionState.ABANDONED
 
 
 @pytest.mark.unit

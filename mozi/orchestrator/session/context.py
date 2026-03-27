@@ -10,7 +10,7 @@ Create a session context:
     ctx = SessionContext(
         session_id="sess_abc123",
         complexity_score=35,
-        complexity_level="SIMPLE",
+        complexity_level=ComplexityLevel.SIMPLE,
     )
 
 Access session metadata:
@@ -86,9 +86,9 @@ class SessionContext:
         When the session was last updated.
     complexity_score : int
         Numerical complexity score (0-100).
-    complexity_level : str
+    complexity_level : ComplexityLevel
         Complexity level (SIMPLE, MEDIUM, COMPLEX).
-    state : str
+    state : SessionState
         Current session state.
     metadata : dict[str, Any]
         Flexible metadata storage for session-specific data.
@@ -104,13 +104,13 @@ class SessionContext:
         ctx = SessionContext(
             session_id="sess_xyz789",
             complexity_score=55,
-            complexity_level="MEDIUM",
+            complexity_level=ComplexityLevel.MEDIUM,
         )
         ctx.metadata["project"] = "my-project"
 
     Check complexity level:
 
-        if ctx.complexity_level == "SIMPLE":
+        if ctx.complexity_level == ComplexityLevel.SIMPLE:
             print("Fast path execution")
     """
 
@@ -118,8 +118,8 @@ class SessionContext:
     created_at: datetime
     updated_at: datetime
     complexity_score: int = 0
-    complexity_level: str = "SIMPLE"
-    state: str = "ACTIVE"
+    complexity_level: ComplexityLevel = ComplexityLevel.SIMPLE
+    state: SessionState = SessionState.ACTIVE
     metadata: dict[str, Any] = field(default_factory=dict)
     messages: list[dict[str, Any]] = field(default_factory=list)
     task_history: list[dict[str, Any]] = field(default_factory=list)
@@ -137,8 +137,8 @@ class SessionContext:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "complexity_score": self.complexity_score,
-            "complexity_level": self.complexity_level,
-            "state": self.state,
+            "complexity_level": self.complexity_level.value,
+            "state": self.state.value,
             "metadata": self.metadata,
             "messages": self.messages,
             "task_history": self.task_history,
@@ -163,8 +163,8 @@ class SessionContext:
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
             complexity_score=data.get("complexity_score", 0),
-            complexity_level=data.get("complexity_level", "SIMPLE"),
-            state=data.get("state", "ACTIVE"),
+            complexity_level=ComplexityLevel(data.get("complexity_level", "SIMPLE")),
+            state=SessionState(data.get("state", "ACTIVE")),
             metadata=data.get("metadata", {}),
             messages=data.get("messages", []),
             task_history=data.get("task_history", []),
