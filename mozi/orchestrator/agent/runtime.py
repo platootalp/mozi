@@ -299,7 +299,7 @@ Remember: Be thorough but concise. Provide just the necessary information in you
             )
 
         # Add task as user message if this is a new task
-        if state.current_iteration == 0:
+        if state.current_iteration == 1:
             messages.append(
                 ChatMessage(
                     role="user",

@@ -66,6 +66,7 @@ class AnthropicModelAdapter(ModelAdapter):
         self,
         api_key: str | None = None,
         model: str | None = None,
+        base_url: str | None = None,
         max_retries: int = 3,
         timeout: float = 60.0,
     ) -> None:
@@ -78,6 +79,9 @@ class AnthropicModelAdapter(ModelAdapter):
             ANTHROPIC_API_KEY environment variable.
         model : str | None, optional
             The model identifier. Defaults to DEFAULT_MODEL.
+        base_url : str | None, optional
+            The base URL for the API. If not provided, reads from
+            ANTHROPIC_BASE_URL environment variable.
         max_retries : int, optional
             Maximum number of retry attempts. Default is 3.
         timeout : float, optional
@@ -95,6 +99,7 @@ class AnthropicModelAdapter(ModelAdapter):
                 provider=ModelProvider.ANTHROPIC,
             )
 
+        resolved_base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL")
         resolved_model = model or self.DEFAULT_MODEL
         super().__init__(
             provider=ModelProvider.ANTHROPIC,
@@ -104,10 +109,16 @@ class AnthropicModelAdapter(ModelAdapter):
             timeout=timeout,
         )
 
+        client_kwargs: dict[str, Any] = {
+            "api_key": resolved_api_key,
+            "timeout": self._timeout,
+            "max_retries": max_retries,
+        }
+        if resolved_base_url:
+            client_kwargs["base_url"] = resolved_base_url
+
         self._client: anthropic.AsyncAnthropic = anthropic.AsyncAnthropic(
-            api_key=resolved_api_key,
-            timeout=self._timeout,
-            max_retries=max_retries,
+            **client_kwargs,
         )
         self._last_usage: dict[str, int] = {
             "prompt_tokens": 0,

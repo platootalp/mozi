@@ -99,9 +99,7 @@ class OrchestratorFactory:
 
             # Create a default model adapter if not provided
             if model_adapter is None:
-                model_adapter = AnthropicModelAdapter(
-                    api_key="dummy",  # Will be loaded from environment
-                )
+                model_adapter = AnthropicModelAdapter()
 
             cls._orchestrator = MainOrchestrator(
                 model_adapter=model_adapter,
