@@ -151,7 +151,9 @@ def main(
 
         mozi "Continue editing" --session sess_abc123
     """
-    formatter = get_formatter(format=format, no_color=no_color)
+    # When print_mode is True, use simple format for cleaner output
+    output_format = format if not print_mode else "simple"
+    formatter = get_formatter(format=output_format, no_color=no_color)
 
     try:
         # Handle new CLI flags for session management
