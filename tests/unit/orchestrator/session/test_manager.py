@@ -581,3 +581,158 @@ class TestModuleExports:
         """Test SessionState is importable from module."""
         from mozi.orchestrator.session import SessionState
         assert SessionState is not None
+
+
+@pytest.mark.unit
+class TestSessionManagerAddMessage:
+    """Tests for SessionManager.add_message()."""
+
+    @pytest.mark.asyncio
+    async def test_add_message_increments_count(self) -> None:
+        """Test add_message increments message_count and total_tokens."""
+        import shutil
+        import tempfile
+        from mozi.orchestrator.session.manager import SessionManager
+        from mozi.orchestrator.session.models import SessionMessage
+        from mozi.storage.session.file_storage import FileSessionStorage
+        from mozi.orchestrator.session.compactor import ContextCompactor
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            storage = FileSessionStorage(temp_dir)
+            compactor = ContextCompactor(context_limit=1000)
+            manager = SessionManager(storage=storage, compactor=compactor)
+
+            session = await manager.create_session(complexity_score=35)
+
+            msg = SessionMessage(
+                id="msg_001",
+                role="user",
+                content="Hello",
+                timestamp=datetime.now(),
+                tokens=50,
+            )
+
+            updated_session = await manager.add_message(session.session_id, msg)
+
+            assert updated_session.get_metadata("message_count") == 1
+            assert updated_session.get_metadata("total_tokens") == 50
+
+            # Verify message was stored
+            messages = await storage.load_messages(session.session_id)
+            assert len(messages) == 1
+            assert messages[0].content == "Hello"
+        finally:
+            shutil.rmtree(temp_dir)
+
+    @pytest.mark.asyncio
+    async def test_add_message_multiple(self) -> None:
+        """Test add_message with multiple messages."""
+        import shutil
+        import tempfile
+        from mozi.orchestrator.session.manager import SessionManager
+        from mozi.orchestrator.session.models import SessionMessage
+        from mozi.storage.session.file_storage import FileSessionStorage
+        from mozi.orchestrator.session.compactor import ContextCompactor
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            storage = FileSessionStorage(temp_dir)
+            compactor = ContextCompactor(context_limit=1000)
+            manager = SessionManager(storage=storage, compactor=compactor)
+
+            session = await manager.create_session(complexity_score=35)
+
+            msg1 = SessionMessage(
+                id="msg_001",
+                role="user",
+                content="Hello",
+                timestamp=datetime.now(),
+                tokens=50,
+            )
+            msg2 = SessionMessage(
+                id="msg_002",
+                role="assistant",
+                content="Hi there",
+                timestamp=datetime.now(),
+                tokens=30,
+            )
+
+            await manager.add_message(session.session_id, msg1)
+            updated_session = await manager.add_message(session.session_id, msg2)
+
+            assert updated_session.get_metadata("message_count") == 2
+            assert updated_session.get_metadata("total_tokens") == 80
+        finally:
+            shutil.rmtree(temp_dir)
+
+    @pytest.mark.asyncio
+    async def test_add_message_triggers_compaction(self) -> None:
+        """Test add_message triggers compaction when threshold reached."""
+        import shutil
+        import tempfile
+        from mozi.orchestrator.session.manager import SessionManager
+        from mozi.orchestrator.session.models import SessionMessage
+        from mozi.storage.session.file_storage import FileSessionStorage
+        from mozi.orchestrator.session.compactor import ContextCompactor
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            storage = FileSessionStorage(temp_dir)
+            compactor = ContextCompactor(context_limit=200)
+            manager = SessionManager(storage=storage, compactor=compactor)
+
+            session = await manager.create_session(complexity_score=35)
+
+            # Add messages that will exceed threshold (200 * 0.95 = 190)
+            # Need more than PRESERVE_RECENT_COUNT (10) messages for compaction
+            # to actually reduce message count
+            for i in range(15):
+                msg = SessionMessage(
+                    id=f"msg_{i:03d}",
+                    role="user",
+                    content=f"Message {i}",
+                    timestamp=datetime.now(),
+                    tokens=50,
+                )
+                await manager.add_message(session.session_id, msg)
+
+            # Check that compaction metadata was recorded
+            updated_session = await manager.get_session(session.session_id)
+            compaction_result = updated_session.get_metadata("last_compaction_result")
+            assert compaction_result is not None
+            # Compaction should have reduced message count
+            assert compaction_result["compacted_count"] < compaction_result["original_count"]
+        finally:
+            shutil.rmtree(temp_dir)
+
+    @pytest.mark.asyncio
+    async def test_add_message_nonexistent_session_raises(self) -> None:
+        """Test add_message raises for non-existent session."""
+        import shutil
+        import tempfile
+        from mozi.orchestrator.session.manager import SessionManager
+        from mozi.orchestrator.session.models import SessionMessage
+        from mozi.storage.session.file_storage import FileSessionStorage
+        from mozi.orchestrator.session.compactor import ContextCompactor
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            storage = FileSessionStorage(temp_dir)
+            compactor = ContextCompactor(context_limit=1000)
+            manager = SessionManager(storage=storage, compactor=compactor)
+
+            msg = SessionMessage(
+                id="msg_001",
+                role="user",
+                content="Hello",
+                timestamp=datetime.now(),
+                tokens=50,
+            )
+
+            with pytest.raises(MoziSessionError) as exc_info:
+                await manager.add_message("nonexistent_session", msg)
+
+            assert "Session not found" in str(exc_info.value.message)
+        finally:
+            shutil.rmtree(temp_dir)

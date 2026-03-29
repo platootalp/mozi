@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mozi.core.error import MoziSessionError
 from mozi.orchestrator.session.context import (
@@ -31,6 +31,11 @@ from mozi.orchestrator.session.context import (
     SessionContext,
     SessionState,
 )
+
+if TYPE_CHECKING:
+    from mozi.orchestrator.session.compactor import ContextCompactor
+    from mozi.orchestrator.session.models import SessionMessage
+    from mozi.storage.session.file_storage import FileSessionStorage
 
 
 class SessionManager:
@@ -43,6 +48,10 @@ class SessionManager:
     ----------
     _sessions : dict[str, SessionContext]
         In-memory cache of active sessions.
+    _storage : FileSessionStorage | None
+        File storage for persisting messages.
+    _compactor : ContextCompactor | None
+        Context compactor for managing context window.
 
     Examples
     --------
@@ -51,11 +60,32 @@ class SessionManager:
         manager = SessionManager()
         session = await manager.create_session(complexity_score=50)
         await manager.save_session(session)
+
+    Create with storage and compactor integration:
+
+        storage = FileSessionStorage("/tmp/sessions")
+        compactor = ContextCompactor(context_limit=100000)
+        manager = SessionManager(storage=storage, compactor=compactor)
+        session = await manager.create_session(complexity_score=50)
     """
 
-    def __init__(self) -> None:
-        """Initialize the session manager."""
+    def __init__(
+        self,
+        storage: FileSessionStorage | None = None,
+        compactor: ContextCompactor | None = None,
+    ) -> None:
+        """Initialize the session manager.
+
+        Parameters
+        ----------
+        storage : FileSessionStorage | None, optional
+            File storage for persisting messages. Defaults to None.
+        compactor : ContextCompactor | None, optional
+            Context compactor for managing context window. Defaults to None.
+        """
         self._sessions: dict[str, SessionContext] = {}
+        self._storage = storage
+        self._compactor = compactor
 
     async def create_session(
         self,
@@ -393,3 +423,70 @@ class SessionManager:
             True if session exists, False otherwise.
         """
         return session_id in self._sessions
+
+    async def add_message(
+        self, session_id: str, message: SessionMessage
+    ) -> SessionContext:
+        """Add a message to a session.
+
+        This method appends the message to file storage, updates session
+        metadata (message_count, total_tokens), and triggers compaction
+        when the context window threshold is reached.
+
+        Parameters
+        ----------
+        session_id : str
+            The unique session identifier.
+        message : SessionMessage
+            The message to add to the session.
+
+        Returns
+        -------
+        SessionContext
+            The updated session context.
+
+        Raises
+        ------
+        MoziSessionError
+            If session is not found or if storage operations fail.
+        """
+        try:
+            session = await self.get_session(session_id)
+
+            # Append message to file storage if storage is configured
+            if self._storage is not None:
+                await self._storage.append_message(session_id, message)
+
+            # Update session metadata
+            message_count = session.get_metadata("message_count", 0) + 1
+            total_tokens = session.get_metadata("total_tokens", 0) + message.tokens
+            session.update_metadata("message_count", message_count)
+            session.update_metadata("total_tokens", total_tokens)
+            session.updated_at = datetime.now()
+
+            # Trigger compaction if threshold is reached
+            if self._compactor is not None and self._storage is not None:
+                messages = await self._storage.load_messages(session_id)
+                if self._compactor.should_compact(messages):
+                    compaction_result = await self._compactor.compact(messages)
+                    await self._storage.overwrite_messages(
+                        session_id, compaction_result.messages
+                    )
+                    session.update_metadata(
+                        "last_compaction_result",
+                        {
+                            "original_count": compaction_result.original_count,
+                            "compacted_count": compaction_result.compacted_count,
+                            "original_tokens": compaction_result.original_tokens,
+                            "compacted_tokens": compaction_result.compacted_tokens,
+                        },
+                    )
+
+            self._sessions[session_id] = session
+            return session
+
+        except MoziSessionError:
+            raise
+        except Exception as e:
+            msg = "Failed to add message to session"
+            raise MoziSessionError(msg, session_id=session_id, cause=e) from e
