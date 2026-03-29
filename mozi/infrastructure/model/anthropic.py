@@ -100,7 +100,7 @@ class AnthropicModelAdapter(ModelAdapter):
             )
 
         resolved_base_url = base_url or os.environ.get("ANTHROPIC_BASE_URL")
-        resolved_model = model or self.DEFAULT_MODEL
+        resolved_model = model or os.environ.get("ANTHROPIC_MODEL") or self.DEFAULT_MODEL
         super().__init__(
             provider=ModelProvider.ANTHROPIC,
             api_key=resolved_api_key,
@@ -165,7 +165,18 @@ class AnthropicModelAdapter(ModelAdapter):
                 **kwargs,
             )
 
-            text_block = cast(TextBlock, response.content[0])
+            # Find text content, skipping thinking blocks
+            text_content = ""
+            for block in response.content:
+                block_type = getattr(block, "type", None)
+                if isinstance(block_type, str) and block_type == "text":
+                    text_content = cast(TextBlock, block).text
+                    break
+                elif not isinstance(block_type, str) and hasattr(block, "text"):
+                    # Handle mock objects that don't have type attribute
+                    text_content = str(block.text)
+                    break
+
             self._last_usage = {
                 "prompt_tokens": response.usage.input_tokens,
                 "completion_tokens": response.usage.output_tokens,
@@ -174,7 +185,7 @@ class AnthropicModelAdapter(ModelAdapter):
                 ),
             }
             return ModelResponse(
-                content=text_block.text,
+                content=text_content,
                 model=response.model,
                 usage=self._last_usage,
                 stop_reason=response.stop_reason,
@@ -238,7 +249,18 @@ class AnthropicModelAdapter(ModelAdapter):
                 **kwargs,
             )
 
-            text_block = cast(TextBlock, response.content[0])
+            # Find text content, skipping thinking blocks
+            text_content = ""
+            for block in response.content:
+                block_type = getattr(block, "type", None)
+                if isinstance(block_type, str) and block_type == "text":
+                    text_content = cast(TextBlock, block).text
+                    break
+                elif not isinstance(block_type, str) and hasattr(block, "text"):
+                    # Handle mock objects that don't have type attribute
+                    text_content = str(block.text)
+                    break
+
             self._last_usage = {
                 "prompt_tokens": response.usage.input_tokens,
                 "completion_tokens": response.usage.output_tokens,
@@ -247,7 +269,7 @@ class AnthropicModelAdapter(ModelAdapter):
                 ),
             }
             return ModelResponse(
-                content=text_block.text,
+                content=text_content,
                 model=response.model,
                 usage=self._last_usage,
                 stop_reason=response.stop_reason,

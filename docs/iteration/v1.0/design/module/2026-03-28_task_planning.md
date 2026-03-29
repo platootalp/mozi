@@ -7,9 +7,10 @@
 | 模块名称 | Task & Planning |
 | 职责 | 任务创建分解、执行调度、检查点、进度跟踪 |
 | 路径 | `mozi/orchestration/` |
-| 文档版本 | v1.0 |
+| 文档版本 | v1.1 |
 | 状态 | 规划中 |
 | 创建日期 | 2026-03-28 |
+| 更新日期 | 2026-03-29 |
 
 ---
 
@@ -689,6 +690,146 @@ class TaskRouter:
 
 ---
 
+## 8. Claude Code Task Planning Comparison
+
+### 8.1 Claude Code 的规划方式
+
+Claude Code 采用了一种与 Mozi 截然不同的规划方法：
+
+| 特性 | Claude Code | Mozi |
+|------|-------------|------|
+| 规划机制 | 对话式隐式规划 | 显式任务分解与 DAG |
+| 规划命令 | `/plan` 只读模式 | 结构化 TaskPlanning 模块 |
+| 任务拆解 | 通过对话渐进式拆解 | 静态分解为子任务树 |
+| 执行策略 | 即时执行，快速反馈 | 复杂度评估后选择策略 |
+| 用户交互 | 高频交互，确认每步 | 低频交互，批量执行 |
+
+### 8.2 Claude Code 的核心特点
+
+1. **隐式任务分解**: 通过对话自然地将大任务拆解为小步骤，而非预先构建完整 DAG
+2. **只读计划模式**: `/plan` 命令允许用户在不执行的情况下预览代码变更
+3. **渐进式执行**: 任务在对话中逐步完成，而非一次性全量执行
+4. **即时反馈循环**: 每次操作后立即返回结果，缩短反馈周期
+
+```bash
+# Claude Code 的 plan 命令示例
+/plan  # 生成只读变更计划，供用户审阅
+```
+
+### 8.3 Mozi 可借鉴的改进方向
+
+#### 8.3.1 轻量级 Plan Mode
+
+考虑为 Mozi 引入只读计划模式，允许用户在正式执行前预览任务分解：
+
+```python
+class PlanMode:
+    """只读计划模式"""
+
+    async def generate_plan(
+        self,
+        task: Task,
+        context: Context,
+    ) -> PlanResult:
+        """生成任务计划（不执行）"""
+        # 1. 复杂度评估
+        complexity = await self.complexity_assessor.assess(task, context)
+
+        # 2. 生成任务分解（不创建实际 Task 对象）
+        subtasks = await self._decompose_readonly(task, context)
+
+        # 3. 选择策略（不执行）
+        strategy = self.task_router.route(complexity)
+
+        return PlanResult(
+            complexity=complexity,
+            subtasks=subtasks,
+            strategy=strategy.__class__.__name__,
+            estimated_steps=strategy.max_iterations,
+        )
+
+    async def _decompose_readonly(
+        self,
+        task: Task,
+        context: Context,
+    ) -> List[SubtaskPreview]:
+        """只读模式的任务分解"""
+        # 调用 LLM 生成任务拆解，但不创建实际 Task 对象
+        planner = context.get_agent("planner")
+        plan = await planner.run(task, context)
+
+        return [
+            SubtaskPreview(description=sub.description, reason=sub.reason)
+            for sub in plan.subtasks
+        ]
+
+@dataclass
+class SubtaskPreview:
+    description: str
+    reason: str
+
+@dataclass
+class PlanResult:
+    complexity: ComplexityResult
+    subtasks: List[SubtaskPreview]
+    strategy: str
+    estimated_steps: int
+```
+
+#### 8.3.2 对话式任务澄清
+
+Claude Code 的对话式规划适合复杂任务的早期澄清阶段。Mozi 可以在复杂度评估前增加任务澄清环节：
+
+```python
+class TaskClarifier:
+    """任务澄清器"""
+
+    async def clarify(
+        self,
+        task: Task,
+        context: Context,
+    ) -> ClarificationResult:
+        """通过对话澄清任务细节"""
+        # 1. 检测任务歧义
+        ambiguities = await self._detect_ambiguities(task, context)
+
+        if not ambiguities:
+            return ClarificationResult(needs_clarification=False)
+
+        # 2. 向用户提问澄清
+        questions = await self._generate_questions(ambiguities)
+        answers = await self._ask_user(questions)
+
+        # 3. 更新任务描述
+        clarified_description = await self._merge_answers(
+            task.description, answers
+        )
+
+        return ClarificationResult(
+            needs_clarification=True,
+            clarified_description=clarified_description,
+        )
+```
+
+#### 8.3.3 分层执行模式
+
+| 模式 | 适用场景 | 用户交互频率 | 反馈延迟 |
+|------|----------|--------------|----------|
+| FastPath | SIMPLE 任务 | 低 | 即时 |
+| Interactive | MEDIUM 任务 | 中 | 迭代后 |
+| Plan-First | COMPLEX 任务 | 高（Plan 阶段） | Plan 后执行 |
+| Claude-Style | 超复杂任务 | 极高（每步确认） | 每步后 |
+
+### 8.4 改进建议的实施优先级
+
+| 优先级 | 改进项 | 复杂度 | 价值 |
+|--------|--------|--------|------|
+| P1 | 轻量级 Plan Mode | 中 | 高 |
+| P2 | 任务澄清对话 | 高 | 中 |
+| P3 | 分层执行模式 | 中 | 高 |
+
+---
+
 ## 9. 依赖关系
 
 - **依赖模块**: Agent Layer, Storage Layer
@@ -700,4 +841,5 @@ class TaskRouter:
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v1.1 | 2026-03-29 | 新增第8节：Claude Code Task Planning Comparison，对比两种规划方式并提出轻量级 Plan Mode 建议 |
 | v1.0 | 2026-03-28 | 初始版本，从架构文档拆分 |
