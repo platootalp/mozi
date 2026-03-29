@@ -210,6 +210,7 @@ class SessionStore(BaseStore[Session]):
     async def list_sessions(
         self,
         limit: int = 10,
+        offset: int = 0,
         status: SessionStatus | None = None,
     ) -> list[Session]:
         """List sessions with optional filtering.
@@ -218,6 +219,8 @@ class SessionStore(BaseStore[Session]):
         ----------
         limit : int
             Maximum number of sessions to return.
+        offset : int
+            Number of sessions to skip. Defaults to 0.
         status : SessionStatus | None
             Filter by session status.
 
@@ -227,12 +230,13 @@ class SessionStore(BaseStore[Session]):
             List of matching sessions.
         """
         loop = asyncio.get_event_loop()
-        rows = await loop.run_in_executor(None, self._sync_list, limit, status)
+        rows = await loop.run_in_executor(None, self._sync_list, limit, offset, status)
         return [self._row_to_session(row) for row in rows]
 
     def _sync_list(
         self,
         limit: int,
+        offset: int = 0,
         status: SessionStatus | None = None,
     ) -> list[tuple[Any, ...]]:
         """Synchronous list operation.
@@ -241,6 +245,8 @@ class SessionStore(BaseStore[Session]):
         ----------
         limit : int
             Maximum number of sessions to return.
+        offset : int
+            Number of sessions to skip. Defaults to 0.
         status : SessionStatus | None
             Filter by session status.
 
@@ -257,18 +263,18 @@ class SessionStore(BaseStore[Session]):
                 SELECT * FROM sessions
                 WHERE status = ?
                 ORDER BY updated_at DESC
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (status.value, limit),
+                (status.value, limit, offset),
             )
         else:
             cursor = conn.execute(
                 """
                 SELECT * FROM sessions
                 ORDER BY updated_at DESC
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (limit,),
+                (limit, offset),
             )
 
         rows = cursor.fetchall()
@@ -409,7 +415,12 @@ class SessionStore(BaseStore[Session]):
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.execute(
-            "SELECT id, created_at, updated_at, status, complexity_level, complexity_score, model, message_count, metadata, last_activity, name FROM sessions WHERE name = ?",
+            """
+            SELECT id, created_at, updated_at, status, complexity_level,
+                   complexity_score, model, message_count, metadata,
+                   last_activity, name
+            FROM sessions WHERE name = ?
+            """,
             (name,),
         )
         row = cursor.fetchone()

@@ -224,7 +224,7 @@ async def list_sessions(
     limit: int = 10,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    """List recent sessions.
+    """List recent sessions with message counts.
 
     Parameters
     ----------
@@ -236,13 +236,40 @@ async def list_sessions(
     Returns
     -------
     list[dict[str, Any]]
-        List of session dictionaries.
+        List of session dictionaries with message counts.
     """
-    orchestrator = OrchestratorFactory.get_orchestrator()
-    session_manager = orchestrator.get_session_manager()
+    from mozi.storage.session.file_storage import FileSessionStorage
+    from mozi.storage.session.manager import SessionStore
 
-    sessions = await session_manager.list_sessions()
-    return [session.to_dict() for session in sessions]
+    # Determine base storage path (same pattern as _get_session_db_path)
+    project_config_dir = Path.cwd() / ".mozi"
+    if project_config_dir.exists() and project_config_dir.is_dir():
+        base_path = str(project_config_dir / "sessions")
+    else:
+        base_path = str(Path.home() / ".ai" / "sessions")
+
+    # Get session database path
+    db_path = _get_session_db_path()
+    store = SessionStore(db_path)
+
+    sessions = await store.list_sessions(limit=limit, offset=offset)
+    file_storage = FileSessionStorage(base_path)
+
+    result = []
+    for sess in sessions:
+        # Get message count from file storage
+        messages = await file_storage.load_messages(sess.id)
+
+        result.append({
+            "session_id": sess.id,
+            "name": sess.name,
+            "state": sess.status.value,
+            "complexity_level": sess.complexity_level.value if sess.complexity_level else None,
+            "created_at": sess.created_at.isoformat(),
+            "message_count": len(messages),
+        })
+
+    return result
 
 
 async def get_session(session_id: str) -> dict[str, Any] | None:
