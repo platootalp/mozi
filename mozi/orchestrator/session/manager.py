@@ -424,9 +424,7 @@ class SessionManager:
         """
         return session_id in self._sessions
 
-    async def add_message(
-        self, session_id: str, message: SessionMessage
-    ) -> SessionContext:
+    async def add_message(self, session_id: str, message: SessionMessage) -> SessionContext:
         """Add a message to a session.
 
         This method appends the message to file storage, updates session
@@ -469,9 +467,7 @@ class SessionManager:
                 messages = await self._storage.load_messages(session_id)
                 if self._compactor.should_compact(messages):
                     compaction_result = await self._compactor.compact(messages)
-                    await self._storage.overwrite_messages(
-                        session_id, compaction_result.messages
-                    )
+                    await self._storage.overwrite_messages(session_id, compaction_result.messages)
                     session.update_metadata(
                         "last_compaction_result",
                         {

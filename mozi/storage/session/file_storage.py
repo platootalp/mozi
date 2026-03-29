@@ -96,9 +96,7 @@ class FileSessionStorage:
         """
         return self._base_path / session_id / "conversation.jsonl"
 
-    async def append_message(
-        self, session_id: str, message: SessionMessage
-    ) -> None:
+    async def append_message(self, session_id: str, message: SessionMessage) -> None:
         """Append a message to a session's conversation.
 
         Parameters
@@ -151,9 +149,7 @@ class FileSessionStorage:
 
         return messages
 
-    async def overwrite_messages(
-        self, session_id: str, messages: list[SessionMessage]
-    ) -> None:
+    async def overwrite_messages(self, session_id: str, messages: list[SessionMessage]) -> None:
         """Overwrite a session's conversation with new messages.
 
         Parameters

@@ -248,14 +248,16 @@ async def list_sessions(
 
     result = []
     for sess in sessions:
-        result.append({
-            "session_id": sess.id,
-            "name": sess.name,
-            "state": sess.status.value,
-            "complexity_level": sess.complexity_level.value if sess.complexity_level else None,
-            "created_at": sess.created_at.isoformat(),
-            "message_count": sess.message_count,
-        })
+        result.append(
+            {
+                "session_id": sess.id,
+                "name": sess.name,
+                "state": sess.status.value,
+                "complexity_level": sess.complexity_level.value if sess.complexity_level else None,
+                "created_at": sess.created_at.isoformat(),
+                "message_count": sess.message_count,
+            }
+        )
 
     return result
 

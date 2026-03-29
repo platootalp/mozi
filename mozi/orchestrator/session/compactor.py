@@ -134,9 +134,7 @@ class ContextCompactor:
         total_tokens = sum(msg.tokens for msg in messages)
         return total_tokens > self.compaction_threshold_tokens
 
-    async def compact(
-        self, messages: list[SessionMessage]
-    ) -> CompactionResult:
+    async def compact(self, messages: list[SessionMessage]) -> CompactionResult:
         """Compact messages by summarizing older ones.
 
         This method preserves the most recent messages (PRESERVE_RECENT_COUNT)
@@ -180,9 +178,7 @@ class ContextCompactor:
             messages=compacted_messages,
         )
 
-    async def _summarize_batch(
-        self, messages: list[SessionMessage]
-    ) -> list[SessionMessage]:
+    async def _summarize_batch(self, messages: list[SessionMessage]) -> list[SessionMessage]:
         """Summarize a batch of older messages.
 
         This method combines multiple messages into fewer summarized messages.
