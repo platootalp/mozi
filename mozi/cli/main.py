@@ -28,12 +28,15 @@ import typer
 from mozi import __version__
 from mozi.cli.commands import (
     CLIError,
+    continue_last_session,
+    create_named_session,
     delete_session,
     execute_task,
     execute_task_with_retry,
     get_session,
     interactive_mode,
     list_sessions,
+    resume_session_by_name_or_id,
 )
 from mozi.cli.output import OutputFormat, OutputFormatter
 from mozi.core import MoziError
@@ -112,6 +115,22 @@ def main(
         bool,
         typer.Option("--no-color", help="Disable color output"),
     ] = False,
+    continue_last: Annotated[
+        bool,
+        typer.Option("--continue", "-c", help="Continue the most recent session"),
+    ] = False,
+    resume: Annotated[
+        str | None,
+        typer.Option("--resume", "-r", help="Resume session by name or ID"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option("--name", "-n", help="Name for new session"),
+    ] = None,
+    print_mode: Annotated[
+        bool,
+        typer.Option("--print", "-p", help="Print result only (non-interactive)"),
+    ] = False,
 ) -> None:
     """Execute a task or start interactive mode.
 
@@ -135,6 +154,45 @@ def main(
     formatter = get_formatter(format=format, no_color=no_color)
 
     try:
+        # Handle new CLI flags for session management
+        if continue_last:
+            if task is None:
+                raise CLIError("Task description required when using --continue")
+            result = asyncio.run(
+                continue_last_session(
+                    task=task,
+                    verbose=verbose,
+                )
+            )
+            formatter.print_result(result)
+            raise typer.Exit(code=0 if result.success else 1)
+
+        if resume is not None:
+            if task is None:
+                raise CLIError("Task description required when using --resume")
+            result = asyncio.run(
+                resume_session_by_name_or_id(
+                    name_or_id=resume,
+                    task=task,
+                    verbose=verbose,
+                )
+            )
+            formatter.print_result(result)
+            raise typer.Exit(code=0 if result.success else 1)
+
+        if name is not None:
+            if task is None:
+                raise CLIError("Task description required when using --name")
+            result = asyncio.run(
+                create_named_session(
+                    name=name,
+                    task=task,
+                    verbose=verbose,
+                )
+            )
+            formatter.print_result(result)
+            raise typer.Exit(code=0 if result.success else 1)
+
         if interactive or task is None:
             # Interactive mode
             output_format = (

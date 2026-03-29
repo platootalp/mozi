@@ -16,6 +16,9 @@ List sessions:
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from mozi.cli.output import OutputFormat, OutputFormatter
@@ -383,6 +386,151 @@ async def interactive_mode(
 
         except Exception as e:
             formatter.print_error(e)
+
+
+def _get_session_db_path() -> str:
+    """Get the path to the session database.
+
+    Returns
+    -------
+    str
+        Path to the session database file.
+    """
+    # Use project config directory if it exists, otherwise use user config
+    project_config_dir = Path.cwd() / ".mozi"
+    if project_config_dir.exists() and project_config_dir.is_dir():
+        return str(project_config_dir / "sessions.db")
+
+    user_config_dir = Path.home() / ".mozi"
+    return str(user_config_dir / "sessions.db")
+
+
+async def continue_last_session(
+    task: str,
+    verbose: bool = False,
+) -> OrchestratorResult:
+    """Continue the most recent session.
+
+    Parameters
+    ----------
+    task : str
+        Task description to execute.
+    verbose : bool, optional
+        Enable verbose output. Defaults to False.
+
+    Returns
+    -------
+    OrchestratorResult
+        The result of the task execution.
+
+    Raises
+    ------
+    CLIError
+        If there is no active session to continue.
+    """
+    from mozi.storage.session.manager import SessionStore
+
+    db_path = _get_session_db_path()
+    store = SessionStore(db_path)
+
+    session = await store.get_active()
+    if not session:
+        raise CLIError("No active session to continue")
+
+    return await execute_task(
+        task_description=task,
+        session_id=session.id,
+        verbose=verbose,
+    )
+
+
+async def resume_session_by_name_or_id(
+    name_or_id: str,
+    task: str,
+    verbose: bool = False,
+) -> OrchestratorResult:
+    """Resume a session by name or ID.
+
+    Parameters
+    ----------
+    name_or_id : str
+        Session name or ID to resume.
+    task : str
+        Task description to execute.
+    verbose : bool, optional
+        Enable verbose output. Defaults to False.
+
+    Returns
+    -------
+    OrchestratorResult
+        The result of the task execution.
+
+    Raises
+    ------
+    CLIError
+        If the session is not found.
+    """
+    from mozi.storage.session.manager import SessionStore
+
+    db_path = _get_session_db_path()
+    store = SessionStore(db_path)
+
+    # Try by name first
+    session = await store.get_by_name(name_or_id)
+    if not session:
+        session = await store.get(name_or_id)
+
+    if not session:
+        raise CLIError(f"Session not found: {name_or_id}")
+
+    return await execute_task(
+        task_description=task,
+        session_id=session.id,
+        verbose=verbose,
+    )
+
+
+async def create_named_session(
+    name: str,
+    task: str,
+    verbose: bool = False,
+) -> OrchestratorResult:
+    """Create a new named session.
+
+    Parameters
+    ----------
+    name : str
+        Name for the new session.
+    task : str
+        Task description to execute.
+    verbose : bool, optional
+        Enable verbose output. Defaults to False.
+
+    Returns
+    -------
+    OrchestratorResult
+        The result of the task execution.
+    """
+    from mozi.storage.session.manager import SessionStore
+    from mozi.storage.session.schema import Session, SessionStatus
+
+    db_path = _get_session_db_path()
+    store = SessionStore(db_path)
+
+    session = Session(
+        id=f"sess_{uuid.uuid4().hex[:12]}",
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        status=SessionStatus.ACTIVE,
+        name=name,
+    )
+    await store.create(session)
+
+    return await execute_task(
+        task_description=task,
+        session_id=session.id,
+        verbose=verbose,
+    )
 
 
 def _print_interactive_help(formatter: OutputFormatter) -> None:
