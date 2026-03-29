@@ -338,6 +338,21 @@ class ShortTermStore:
             last_accessed=datetime.fromisoformat(row[11]) if row[11] else datetime.now(),
         )
 
+    async def get(self, item_id: str) -> Optional[ContextItem]:
+        """按 ID 获取条目"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._sync_get, item_id)
+
+    def _sync_get(self, item_id: str) -> Optional[ContextItem]:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.execute(
+            "SELECT * FROM context_items WHERE id = ?",
+            (item_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return self._row_to_item(row) if row else None
+
     async def _keyword_search(
         self,
         query: str,
@@ -516,6 +531,66 @@ class LongTermStore:
         conn.commit()
         conn.close()
 
+    async def get(
+        self,
+        item_id: str,
+    ) -> Optional[ContextItem]:
+        """按 ID 获取条目"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._sync_get, item_id)
+
+    def _sync_get(self, item_id: str) -> Optional[ContextItem]:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.execute(
+            "SELECT * FROM context_items_long WHERE id = ?",
+            (item_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return self._row_to_item(row) if row else None
+
+    async def query(
+        self,
+        session_id: Optional[str] = None,
+        types: Optional[List[ContextType]] = None,
+        limit: int = 100,
+    ) -> List[ContextItem]:
+        """查询条目"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._sync_query, session_id, types, limit
+        )
+
+    def _sync_query(
+        self,
+        session_id: Optional[str],
+        types: Optional[List[ContextType]],
+        limit: int,
+    ) -> List[ContextItem]:
+        conn = sqlite3.connect(self.db_path)
+        params: List[Any] = []
+        where = ""
+
+        if session_id:
+            where = "session_id = ?"
+            params.append(session_id)
+
+        if types:
+            type_placeholders = ",".join("?" * len(types))
+            where += f" AND type IN ({type_placeholders})" if where else f"type IN ({type_placeholders})"
+            params.extend([t.value for t in types])
+
+        query = f"SELECT * FROM context_items_long"
+        if where:
+            query += f" WHERE {where}"
+        query += f" ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        cursor = conn.execute(query, params)
+        rows = cursor.fetchall()
+        conn.close()
+        return [self._row_to_item(row) for row in rows]
+
     async def get_low_importance(
         self,
         threshold: float,
@@ -588,7 +663,7 @@ class ContextStore:
             case StorageTier.SHORT_TERM:
                 await self.short_term.add(item)
             case StorageTier.LONG_TERM:
-                await self.long_term.add(item)
+                await self.long_term.add_context_item(item)
 
     async def get(
         self,
@@ -1005,8 +1080,25 @@ class ContextAssembler:
         session_id: str,
     ) -> Dict[str, str]:
         """获取用户偏好"""
-        prefs = await self.store.long_term.get_preference(f"{session_id}:*")
-        return prefs or {}
+        # 从 preferences 表获取该会话的所有偏好
+        loop = asyncio.get_event_loop()
+        prefs = await loop.run_in_executor(
+            None, self._sync_get_preferences, session_id
+        )
+        return prefs
+
+    def _sync_get_preferences(self, session_id: str) -> Dict[str, str]:
+        """同步获取用户偏好"""
+        import sqlite3
+        db_path = self.store.long_term.db_path
+        conn = sqlite3.connect(db_path)
+        cursor = conn.execute(
+            "SELECT key, value FROM preferences WHERE key LIKE ?",
+            (f"{session_id}:%",),
+        )
+        prefs = {row[0]: row[1] for row in cursor}
+        conn.close()
+        return prefs
 
     def _extract_artifacts(
         self,
@@ -1016,9 +1108,14 @@ class ContextAssembler:
         artifacts = []
         for item in items:
             if item.type == ContextType.ARTIFACT:
+                # 尝试从 keywords[0] 获取 artifact type，默认为 CODE
+                artifact_type = ArtifactType.CODE
+                if item.keywords and item.keywords[0] in [t.value for t in ArtifactType]:
+                    artifact_type = ArtifactType(item.keywords[0])
+
                 artifacts.append(Artifact(
                     id=item.id,
-                    type=ArtifactType.CODE,  # 默认类型
+                    type=artifact_type,
                     content=item.content,
                 ))
         return artifacts
@@ -1320,5 +1417,6 @@ class LongTermConfig:
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v1.2 | 2026-03-29 | 修复第二轮审查问题：补全 ShortTermStore.get/LongTermStore.get/query 方法、修复 ContextStore.put 路由到正确的 add 方法、修复 _get_preferences 返回 Dict、修复 _extract_artifacts 类型推导 |
 | v1.1 | 2026-03-29 | 修复审查问题：补全 ShortTermStore.query/delete 方法、补全 LongTermStore.get_low_importance/archive 方法、补全 WorkingStore.evict_lru 方法、添加 Experience/Artifact 类型定义、补全 LongTermStore schema 的 access_count/last_accessed 字段、修复 WorkingStore.query 返回顺序、补全 _filter 关键词过滤、添加 _experience_to_item 和 _extract_artifacts 辅助方法 |
 | v1.0 | 2026-03-29 | 初始版本，重新设计 Context 模块 |
