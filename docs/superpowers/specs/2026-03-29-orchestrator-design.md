@@ -101,13 +101,14 @@ class RiskLevel(Enum):
 ```python
 def should_explore(task_spec: TaskSpec) -> bool:
     """判断是否需要探索阶段"""
-    # 需要探索的情况：
-    # 1. 任务涉及"检查"、"看看"、"分析"等
-    # 2. 任务涉及未知文件/模块
-    # 3. 任务没有指定具体文件路径
-    keywords = ["看看", "检查", "分析", "探索", "哪些", "什么"]
-    has_explicit_target = len(task_spec.entities) > 0 and task_spec.entities.get("file")
-    return any(k in task_spec.goal for k in keywords) or not has_explicit_target
+    # 探索关键词
+    exploration_keywords = ["看看", "检查", "分析", "探索", "哪些", "什么"]
+    # 有探索关键词，且没有明确指定目标文件
+    has_explicit_target = task_spec.entities.get("file")
+    has_exploration_intent = any(k in task_spec.goal for k in exploration_keywords)
+    # 只有当没有明确目标时，或者有探索意图且目标不明确时才探索
+    should_skip = has_explicit_target and not (has_exploration_intent and not has_explicit_target)
+    return not should_skip
 ```
 
 ### 2.3 阶段3: 实现
@@ -188,6 +189,61 @@ class DelegationTemplate(BaseModel):
 
 ---
 
+### 4.3 澄清流程
+
+```
+用户输入
+    │
+    ▼
+TaskSpec 解析
+    │
+    ├──► requires_clarification = False ──► 继续下一阶段
+    │
+    └──► requires_clarification = True
+              │
+              ▼
+         发送澄清问题给用户
+              │
+              ▼
+         等待用户回复（最多2次）
+              │
+              ▼
+         更新 TaskSpec.entities
+              │
+              ├──► 仍需澄清 ──► 再次发送问题
+              │
+              └──► 澄清完成 ──► 继续下一阶段
+```
+
+**澄清接口**：
+
+```python
+class ClarificationManager:
+    """澄清管理器"""
+
+    async def ask(
+        self,
+        session_id: str,
+        questions: list[str],
+    ) -> None:
+        """
+        向用户发送澄清问题
+        """
+
+    async def process_answers(
+        self,
+        session_id: str,
+        answers: dict[str, str],
+    ) -> TaskSpec:
+        """
+        处理用户澄清回复，更新 TaskSpec
+        - 最多澄清 2 次
+        - 超过则停止，请求用户重新描述任务
+        """
+```
+
+---
+
 ## 5. 智能恢复机制
 
 ### 5.1 失败分类
@@ -223,8 +279,8 @@ class FailureType(Enum):
     │                              ├──► 成功 ──► 继续
     │                              └──► 仍失败 ──► Oracle 分析
     │
-    ├──► VERIFICATION_ERROR ──► 修改后重试（最多1次）
-    │                                │
+    ├──► VERIFICATION_ERROR ──► 委托 ExecutorAgent 修改（最多1次）
+    │                                │  Orchestrator 提供失败原因和期望
     │                                ├──► 成功 ──► 继续
     │                                └──► 仍失败 ──► 请求澄清
     │
@@ -241,57 +297,123 @@ class FailureType(Enum):
 
 ### 5.4 回滚机制
 
+回滚用于高风险操作前的安全保护。
+
+**检查点格式**：
+
+```python
+class Checkpoint(BaseModel):
+    """检查点"""
+    id: str
+    session_id: str
+    created_at: datetime
+    files: dict[str, str]  # file_path -> content hash (SHA256)
+```
+
+**回滚策略**：
+
+| 风险等级 | 检查点时机 | 回滚粒度 |
+|----------|------------|----------|
+| LOW | 不需要 | - |
+| MEDIUM | 执行前 | 仅修改的文件 |
+| HIGH | 执行前 | 所有相关文件 |
+
+**回滚管理器**：
+
 ```python
 class RollbackManager:
     """回滚管理器"""
 
-    async def save_checkpoint(self, session_id: str) -> str:
-        """保存检查点"""
-        # 保存当前文件状态
-        pass
+    async def save_checkpoint(
+        self,
+        session_id: str,
+        files: list[str],
+    ) -> str:
+        """
+        保存检查点
+        - 对指定文件计算 hash 并记录
+        - 返回 checkpoint_id
+        """
+        checkpoint_id = generate_uuid()
+        file_hashes = {
+            f: compute_file_hash(f) for f in files
+        }
+        await self.storage.save(checkpoint_id, Checkpoint(
+            id=checkpoint_id,
+            session_id=session_id,
+            created_at=datetime.now(),
+            files=file_hashes,
+        ))
+        return checkpoint_id
 
-    async def rollback(self, checkpoint_id: str) -> None:
-        """回滚到检查点"""
-        # 恢复文件状态
-        pass
+    async def rollback(self, checkpoint_id: str) -> list[str]:
+        """
+        回滚到检查点
+        - 对比当前文件 hash 与检查点
+        - 恢复不一致的文件
+        - 返回恢复的文件列表
+        """
+        checkpoint = await self.storage.load(checkpoint_id)
+        restored = []
+        for path, expected_hash in checkpoint.files.items():
+            current_hash = compute_file_hash(path)
+            if current_hash != expected_hash:
+                # 从 Git 或备份恢复文件
+                await self.restore_file(path)
+                restored.append(path)
+        return restored
+
+    async def cleanup(self, checkpoint_id: str) -> None:
+        """清理检查点"""
+        await self.storage.delete(checkpoint_id)
 ```
 
 ---
 
 ## 6. 验证机制
 
-### 6.1 验证流程
+### 6.1 验证职责划分
+
+| 验证类型 | 执行者 | 说明 |
+|----------|--------|------|
+| 自验证 | ExecutorAgent | 执行过程中进行语法检查、lint、测试 |
+| 证据收集 | ExecutorAgent | 收集修改的文件、执行的命令等证据 |
+| 结果确认 | Orchestrator | 验证阶段展示证据，用户确认 |
+| 用户确认 | 用户 | 最终确认任务是否完成 |
+
+### 6.2 验证流程
 
 ```
-执行完成
+执行完成（ExecutorAgent）
     │
     ▼
-收集证据
+┌─────────────────────────────────────┐
+│ ExecutorAgent 自验证（执行中）         │
+│ - 语法检查                           │
+│ - lint 检查                          │
+│ - 测试验证（如果有）                   │
+└─────────────────────────────────────┘
+    │
+    ▼
+收集证据（ExecutorAgent）
     │
     ├──► 修改的文件列表
     ├──► 执行的操作列表
-    ├──► 返回的结果/输出
+    ├──► 自验证结果
     └──► 相关日志
     │
     ▼
-自动验证
+展示证据（Orchestrator）
     │
-    ├──► 语法检查（如果修改了代码）
-    ├──► lint 检查（如果修改了代码）
-    └──► 测试验证（如果有测试）
-    │
-    ▼
-用户确认
-    │
-    ├──► 展示证据和验证结果
+    ├──► 展示证据和自验证结果
     ├──► 询问："任务完成了吗？"
     └──► 用户确认 / 拒绝
     │
     ├──► 确认 ──► 成功返回
-    └──► 拒绝 ──► 进入智能恢复
+    └──► 拒绝 ──► 进入智能恢复（VERIFICATION_ERROR）
 ```
 
-### 6.2 证据收集
+### 6.3 证据收集
 
 ```python
 class EvidenceCollector:
@@ -309,7 +431,7 @@ class EvidenceCollector:
         }
 ```
 
-### 6.3 验证模板
+### 6.4 验证模板
 
 ```
 任务: {task}
@@ -333,9 +455,108 @@ class EvidenceCollector:
 
 ---
 
-## 7. 接口设计
+## 7. 超时配置
 
-### 7.1 核心数据模型
+### 7.1 超时配置项
+
+```python
+class OrchestratorConfig(BaseModel):
+    """编排器配置"""
+
+    # 各阶段超时（秒）
+    intent_timeout_seconds: int = 30
+    exploration_timeout_seconds: int = 60
+    execution_timeout_seconds: int = 300
+    verification_timeout_seconds: int = 60
+
+    # 澄清配置
+    clarification_max_retries: int = 2
+    clarification_timeout_seconds: int = 300
+
+    # 恢复配置
+    execution_max_retries: int = 2
+    verification_max_retries: int = 1
+
+    # 会话配置
+    max_session_minutes: int = 30
+```
+
+### 7.2 默认超时值
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| intent_timeout_seconds | 30s | 意图理解阶段 |
+| exploration_timeout_seconds | 60s | 探索阶段 |
+| execution_timeout_seconds | 300s | 执行阶段 |
+| verification_timeout_seconds | 60s | 验证阶段 |
+| clarification_max_retries | 2 | 最大澄清次数 |
+| max_session_minutes | 30min | 会话最大时长 |
+
+---
+
+## 8. 会话状态管理
+
+### 8.1 会话数据结构
+
+```python
+class SessionState(BaseModel):
+    """会话状态"""
+    session_id: str
+    created_at: datetime
+    updated_at: datetime
+    task_spec: Optional[TaskSpec]           # 当前任务规约
+    exploration_result: Optional[dict]        # 探索结果
+    execution_result: Optional[dict]         # 执行结果
+    checkpoints: list[str]                   # 检查点 ID 列表
+    context: list[Message]                   # 对话历史
+```
+
+### 8.2 上下文构建
+
+```python
+class ContextBuilder:
+    """上下文构建器"""
+
+    async def build(
+        self,
+        session_id: str,
+        agent_type: str,
+    ) -> dict:
+        """
+        为不同类型的代理构建上下文
+        """
+        session = await self.session_manager.get(session_id)
+        return {
+            "session_id": session_id,
+            "task_spec": session.task_spec,
+            "exploration_result": session.exploration_result,
+            "recent_history": session.context[-10:],  # 最近 10 条消息
+            "memory": await self.memory.recall(session_id),  # 长期记忆
+        }
+```
+
+---
+
+## 9. 事件总线
+
+EventBus 接口定义详见 [eventbus 设计文档](../iteration/v1.0/design/module/2026-03-29_eventbus.md)。
+
+### 9.1 事件类型
+
+| 事件类型 | 发布者 | 订阅者 | 说明 |
+|----------|--------|--------|------|
+| user_message | CLI | Orchestrator | 用户输入 |
+| agent_execute | Orchestrator | Agent | 委托执行 |
+| tool_result | Tools | Orchestrator | 工具结果 |
+| agent_result | Agent | Orchestrator | Agent 结果 |
+| clarification_request | Orchestrator | CLI | 请求澄清 |
+| verification_request | Orchestrator | CLI | 请求用户确认 |
+
+---
+
+## 10. 接口设计
+
+### 10.1 核心数据模型
 
 ```python
 class VerificationResult(BaseModel):
@@ -357,7 +578,7 @@ class OrchestrationResult(BaseModel):
     error: Optional[str]
 ```
 
-### 7.2 核心接口
+### 10.2 核心接口
 
 ```python
 class Orchestrator(ABC):
@@ -397,7 +618,7 @@ class Agent(ABC):
 
 ---
 
-## 8. 模块结构
+## 11. 模块结构
 
 ```
 mozi/orchestrator/
@@ -424,7 +645,7 @@ mozi/orchestrator/
 
 ---
 
-## 9. 事件流
+## 12. 事件流
 
 ```
 user_message ──► Orchestrator.process()
@@ -464,7 +685,7 @@ user_message ──► Orchestrator.process()
 
 ---
 
-## 10. 与旧设计对比
+## 13. 与旧设计对比
 
 | 旧设计 | 新设计 |
 |--------|--------|
@@ -476,6 +697,6 @@ user_message ──► Orchestrator.process()
 
 ---
 
-_版本: 1.0_
+_版本: 1.1_
 _更新日期: 2026-03-29_
 _设计参考: Sisyphus Orchestrator (oh-my-opencode)_
