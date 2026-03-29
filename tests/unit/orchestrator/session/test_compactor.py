@@ -97,36 +97,29 @@ class TestContextCompactor:
         """Test compact preserves the most recent messages."""
         compactor = ContextCompactor(context_limit=1000)
         now = datetime.now()
+        # Create 25 messages to trigger compaction (1250 tokens > 950 threshold)
+        # Messages 1-15 are old, messages 16-25 are recent
         messages = [
             SessionMessage(
-                id="msg_001",
-                role="user",
-                content="Old message",
-                timestamp=now - timedelta(hours=1),
+                id=f"msg_{i:03d}",
+                role="user" if i % 2 == 0 else "assistant",
+                content=f"Message {i}",
+                timestamp=now - timedelta(minutes=50 - i),
                 tokens=50,
-            ),
-            SessionMessage(
-                id="msg_002",
-                role="assistant",
-                content="Old response",
-                timestamp=now - timedelta(minutes=30),
-                tokens=100,
-            ),
-            SessionMessage(
-                id="msg_003",
-                role="user",
-                content="Recent message",
-                timestamp=now,
-                tokens=50,
-            ),
+            )
+            for i in range(1, 26)
         ]
 
         result = await compactor.compact(messages)
 
-        # Recent message should be preserved
-        assert any(m.id == "msg_003" for m in result.messages)
-        # Old messages may be summarized
-        assert len(result.messages) <= len(messages)
+        # Most recent messages (msg_023, msg_024, msg_025) should be preserved
+        assert any(m.id == "msg_023" for m in result.messages)
+        assert any(m.id == "msg_024" for m in result.messages)
+        assert any(m.id == "msg_025" for m in result.messages)
+        # Oldest message (msg_001) should be summarized/removed
+        assert not any(m.id == "msg_001" for m in result.messages)
+        # Compaction should actually reduce messages
+        assert len(result.messages) < len(messages)
 
     @pytest.mark.asyncio
     async def test_compact_triggers_at_threshold(self) -> None:
