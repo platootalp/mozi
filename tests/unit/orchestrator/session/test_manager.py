@@ -592,10 +592,11 @@ class TestSessionManagerAddMessage:
         """Test add_message increments message_count and total_tokens."""
         import shutil
         import tempfile
+
+        from mozi.orchestrator.session.compactor import ContextCompactor
         from mozi.orchestrator.session.manager import SessionManager
         from mozi.orchestrator.session.models import SessionMessage
         from mozi.storage.session.file_storage import FileSessionStorage
-        from mozi.orchestrator.session.compactor import ContextCompactor
 
         temp_dir = tempfile.mkdtemp()
         try:
@@ -630,10 +631,11 @@ class TestSessionManagerAddMessage:
         """Test add_message with multiple messages."""
         import shutil
         import tempfile
+
+        from mozi.orchestrator.session.compactor import ContextCompactor
         from mozi.orchestrator.session.manager import SessionManager
         from mozi.orchestrator.session.models import SessionMessage
         from mozi.storage.session.file_storage import FileSessionStorage
-        from mozi.orchestrator.session.compactor import ContextCompactor
 
         temp_dir = tempfile.mkdtemp()
         try:
@@ -671,10 +673,11 @@ class TestSessionManagerAddMessage:
         """Test add_message triggers compaction when threshold reached."""
         import shutil
         import tempfile
+
+        from mozi.orchestrator.session.compactor import ContextCompactor
         from mozi.orchestrator.session.manager import SessionManager
         from mozi.orchestrator.session.models import SessionMessage
         from mozi.storage.session.file_storage import FileSessionStorage
-        from mozi.orchestrator.session.compactor import ContextCompactor
 
         temp_dir = tempfile.mkdtemp()
         try:
@@ -711,10 +714,11 @@ class TestSessionManagerAddMessage:
         """Test add_message raises for non-existent session."""
         import shutil
         import tempfile
+
+        from mozi.orchestrator.session.compactor import ContextCompactor
         from mozi.orchestrator.session.manager import SessionManager
         from mozi.orchestrator.session.models import SessionMessage
         from mozi.storage.session.file_storage import FileSessionStorage
-        from mozi.orchestrator.session.compactor import ContextCompactor
 
         temp_dir = tempfile.mkdtemp()
         try:
