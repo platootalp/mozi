@@ -136,7 +136,7 @@ class ContextCompactor:
 
     async def compact(
         self, messages: list[SessionMessage]
-    ) -> list[SessionMessage]:
+    ) -> CompactionResult:
         """Compact messages by summarizing older ones.
 
         This method preserves the most recent messages (PRESERVE_RECENT_COUNT)
@@ -149,18 +149,36 @@ class ContextCompactor:
 
         Returns
         -------
-        list[SessionMessage]
-            Compacted message list with recent messages preserved.
+        CompactionResult
+            Compaction result containing original and compacted statistics
+            along with the compacted message list.
         """
+        original_count = len(messages)
+        original_tokens = sum(msg.tokens for msg in messages)
+
         if len(messages) <= self.PRESERVE_RECENT_COUNT:
-            return list(messages)
+            compacted_messages = list(messages)
+            return CompactionResult(
+                original_count=original_count,
+                compacted_count=len(compacted_messages),
+                original_tokens=original_tokens,
+                compacted_tokens=sum(msg.tokens for msg in compacted_messages),
+                messages=compacted_messages,
+            )
 
         preserved = messages[-self.PRESERVE_RECENT_COUNT :]
         to_summarize = messages[: -self.PRESERVE_RECENT_COUNT]
 
         summarized = await self._summarize_batch(to_summarize)
+        compacted_messages = summarized + preserved
 
-        return summarized + preserved
+        return CompactionResult(
+            original_count=original_count,
+            compacted_count=len(compacted_messages),
+            original_tokens=original_tokens,
+            compacted_tokens=sum(msg.tokens for msg in compacted_messages),
+            messages=compacted_messages,
+        )
 
     async def _summarize_batch(
         self, messages: list[SessionMessage]

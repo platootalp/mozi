@@ -121,12 +121,12 @@ class TestContextCompactor:
             ),
         ]
 
-        compacted = await compactor.compact(messages)
+        result = await compactor.compact(messages)
 
         # Recent message should be preserved
-        assert any(m.id == "msg_003" for m in compacted)
+        assert any(m.id == "msg_003" for m in result.messages)
         # Old messages may be summarized
-        assert len(compacted) <= len(messages)
+        assert len(result.messages) <= len(messages)
 
     @pytest.mark.asyncio
     async def test_compact_triggers_at_threshold(self) -> None:
@@ -164,7 +164,7 @@ class TestContextCompactor:
             for i in range(20)
         ]
 
-        compacted = await compactor.compact(messages)
+        result = await compactor.compact(messages)
 
         # The compacted list should have fewer messages
-        assert len(compacted) < len(messages)
+        assert len(result.messages) < len(messages)
