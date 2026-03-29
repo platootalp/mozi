@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 from pathlib import Path
@@ -9,6 +10,29 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from mozi.orchestrator.session.models import SessionMessage
+
+
+def _sync_append(path: Path, line: str) -> None:
+    """Synchronously append a line to a file."""
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+
+def _sync_read_lines(path: Path) -> list[str]:
+    """Synchronously read all lines from a file."""
+    with open(path, encoding="utf-8") as f:
+        return f.readlines()
+
+
+def _sync_write_lines(path: Path, lines: list[str]) -> None:
+    """Synchronously write multiple lines to a file."""
+    with open(path, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+
+
+def _sync_rmtree(path: Path) -> None:
+    """Synchronously remove a directory tree."""
+    shutil.rmtree(path)
 
 
 class FileSessionStorage:
@@ -92,8 +116,8 @@ class FileSessionStorage:
         session_path = self._get_session_path(session_id)
         session_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(session_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(message.to_dict()) + "\n")
+        line = json.dumps(message.to_dict(), ensure_ascii=False)
+        await asyncio.to_thread(_sync_append, session_path, line)
 
     async def load_messages(self, session_id: str) -> list[SessionMessage]:
         """Load all messages from a session's conversation.
@@ -109,20 +133,21 @@ class FileSessionStorage:
             List of messages in the session, ordered by append time.
             Returns an empty list if the session has no messages.
         """
-        from mozi.orchestrator.session.models import SessionMessage
-
         session_path = self._get_session_path(session_id)
 
         if not session_path.exists():
             return []
 
+        # Import here to avoid circular imports at module load time
+        from mozi.orchestrator.session.models import SessionMessage
+
+        lines = await asyncio.to_thread(_sync_read_lines, session_path)
         messages: list[SessionMessage] = []
-        with open(session_path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    data = json.loads(line)
-                    messages.append(SessionMessage.from_dict(data))
+        for line in lines:
+            line = line.strip()
+            if line:
+                data = json.loads(line)
+                messages.append(SessionMessage.from_dict(data))
 
         return messages
 
@@ -146,9 +171,8 @@ class FileSessionStorage:
         session_path = self._get_session_path(session_id)
         session_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(session_path, "w", encoding="utf-8") as f:
-            for message in messages:
-                f.write(json.dumps(message.to_dict()) + "\n")
+        lines = [json.dumps(message.to_dict(), ensure_ascii=False) + "\n" for message in messages]
+        await asyncio.to_thread(_sync_write_lines, session_path, lines)
 
     async def delete_session(self, session_id: str) -> None:
         """Delete a session and all its data.
@@ -162,4 +186,4 @@ class FileSessionStorage:
         session_dir = session_path.parent
 
         if session_dir.exists():
-            shutil.rmtree(session_dir)
+            await asyncio.to_thread(_sync_rmtree, session_dir)
