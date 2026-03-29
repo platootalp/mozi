@@ -409,7 +409,7 @@ class SessionStore(BaseStore[Session]):
         """
         conn = sqlite3.connect(self.db_path)
         cursor = conn.execute(
-            "SELECT * FROM sessions WHERE name = ?",
+            "SELECT id, created_at, updated_at, status, complexity_level, complexity_score, model, message_count, metadata, last_activity, name FROM sessions WHERE name = ?",
             (name,),
         )
         row = cursor.fetchone()
