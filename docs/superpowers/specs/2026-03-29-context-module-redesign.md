@@ -78,7 +78,43 @@ class ContextType(Enum):
     EXPERIENCE = "experience"        # 经验记录
 ```
 
-### 2.3 StorageTier 枚举
+### 2.3 Experience 类型
+
+```python
+@dataclass
+class Experience:
+    """经验记录"""
+    id: Optional[int] = None
+    session_id: str
+    task_type: str
+    success: bool
+    summary: str
+    details: Dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=datetime.now)
+```
+
+### 2.4 Artifact 类型
+
+```python
+@dataclass
+class Artifact:
+    """生成产物"""
+    id: str
+    type: ArtifactType  # CODE, DOCUMENT, CONFIG, etc.
+    content: str
+    file_path: Optional[str] = None
+    created_at: datetime = field(default_factory=datetime.now)
+
+
+class ArtifactType(Enum):
+    CODE = "code"
+    DOCUMENT = "document"
+    CONFIG = "config"
+    TEST = "test"
+    OTHER = "other"
+```
+
+### 2.5 StorageTier 枚举
 
 ```python
 class StorageTier(Enum):
@@ -141,12 +177,19 @@ class WorkingStore:
         types: Optional[List[ContextType]] = None,
         limit: int = 100,
     ) -> List[ContextItem]:
-        """查询会话的上下文条目"""
+        """查询会话的上下文条目（按时间倒序，返回最近的 limit 条）"""
         items = [item for item in self._cache.values()
                  if item.session_id == session_id]
         if types:
             items = [i for i in items if i.type in types]
-        return items[-limit:]  # 最近 limit 条
+        # 按 created_at 倒序，取最近的 limit 条
+        items.sort(key=lambda x: x.created_at, reverse=True)
+        return items[:limit]
+
+    async def evict_lru(self, count: int) -> None:
+        """LRU 驱逐：移除最旧的 count 个条目"""
+        for _ in range(min(count, len(self._cache))):
+            self._cache.popitem(last=False)
 
     async def count(self, session_id: str) -> int:
         return sum(1 for item in self._cache.values()
@@ -204,7 +247,138 @@ class ShortTermStore:
 
         # 向量
         if item.embedding:
-            await self.vector_store.upsert(item)
+            await self.vector_store.upsert(
+                id=item.id,
+                vector=item.embedding,
+                payload={"content": item.content, "session_id": item.session_id},
+            )
+
+    async def query(
+        self,
+        session_id: str,
+        types: Optional[List[ContextType]] = None,
+        limit: int = 100,
+    ) -> List[ContextItem]:
+        """按 session_id 和类型查询条目"""
+        conn = sqlite3.connect(self.db_path)
+
+        type_filter = ""
+        params: List[Any] = [session_id]
+        if types:
+            type_placeholders = ",".join("?" * len(types))
+            type_filter = f"AND type IN ({type_placeholders})"
+            params.extend([t.value for t in types])
+
+        cursor = conn.execute(
+            f"""
+            SELECT * FROM context_items
+            WHERE session_id = ? {type_filter}
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            params + [limit],
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [self._row_to_item(row) for row in rows]
+
+    async def delete(self, item_id: str) -> None:
+        """删除条目"""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._sync_delete, item_id)
+
+    def _sync_delete(self, item_id: str) -> None:
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("DELETE FROM context_items WHERE id = ?", (item_id,))
+        conn.commit()
+        conn.close()
+
+    async def _sqlite_insert(self, item: ContextItem) -> None:
+        """同步插入 SQLite（线程执行）"""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._sync_insert, item)
+
+    def _sync_insert(self, item: ContextItem) -> None:
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            """
+            INSERT INTO context_items (id, type, role, content, session_id, task_id, importance, keywords, summary, is_compacted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item.id,
+                item.type.value,
+                item.role,
+                item.content,
+                item.session_id,
+                item.task_id,
+                item.importance,
+                json.dumps(item.keywords),
+                item.summary,
+                1 if item.is_compacted else 0,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+    def _row_to_item(self, row: tuple) -> ContextItem:
+        return ContextItem(
+            id=row[0],
+            type=ContextType(row[1]),
+            role=row[2],
+            content=row[3],
+            session_id=row[4],
+            task_id=row[5],
+            importance=row[6],
+            keywords=json.loads(row[7]) if row[7] else [],
+            summary=row[8],
+            is_compacted=bool(row[9]),
+            created_at=datetime.fromisoformat(row[10]),
+            last_accessed=datetime.fromisoformat(row[11]) if row[11] else datetime.now(),
+        )
+
+    async def _keyword_search(
+        self,
+        query: str,
+        session_id: str,
+        limit: int,
+    ) -> List[ContextItem]:
+        """关键词搜索"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._sync_keyword_search, query, session_id, limit
+        )
+
+    def _sync_keyword_search(
+        self,
+        query: str,
+        session_id: str,
+        limit: int,
+    ) -> List[ContextItem]:
+        keywords = query.lower().split()
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.execute(
+            """
+            SELECT * FROM context_items
+            WHERE session_id = ? AND is_compacted = 0
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (session_id, limit * 2),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        results = []
+        for row in rows:
+            content_lower = row[3].lower()
+            if any(kw in content_lower for kw in keywords):
+                results.append(self._row_to_item(row))
+            if len(results) >= limit:
+                break
+
+        return results
 
     async def search(
         self,
@@ -283,7 +457,6 @@ class LongTermStore:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS context_items_long (
-                -- 同 ShortTermStore 但无 TTL
                 id TEXT PRIMARY KEY,
                 type TEXT NOT NULL,
                 role TEXT NOT NULL,
@@ -294,6 +467,8 @@ class LongTermStore:
                 keywords TEXT,
                 summary TEXT,
                 is_compacted INTEGER DEFAULT 0,
+                access_count INTEGER DEFAULT 0,
+                last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -315,6 +490,83 @@ class LongTermStore:
         limit: int = 10,
     ) -> List[Experience]:
         ...
+
+    async def add_context_item(self, item: ContextItem) -> None:
+        """添加上下文条目到 Long-term"""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._sync_insert_item, item)
+
+    def _sync_insert_item(self, item: ContextItem) -> None:
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO context_items_long
+            (id, type, role, content, session_id, task_id, importance, keywords, summary, is_compacted, access_count, last_accessed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item.id, item.type.value, item.role, item.content,
+                item.session_id, item.task_id, item.importance,
+                json.dumps(item.keywords), item.summary,
+                1 if item.is_compacted else 0,
+                item.access_count,
+                item.last_accessed.isoformat(),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+    async def get_low_importance(
+        self,
+        threshold: float,
+    ) -> List[ContextItem]:
+        """获取低重要性条目"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, self._sync_get_low_importance, threshold
+        )
+
+    def _sync_get_low_importance(self, threshold: float) -> List[ContextItem]:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.execute(
+            "SELECT * FROM context_items_long WHERE importance < ? LIMIT 100",
+            (threshold,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [self._row_to_item(row) for row in rows]
+
+    def _row_to_item(self, row: tuple) -> ContextItem:
+        return ContextItem(
+            id=row[0],
+            type=ContextType(row[1]),
+            role=row[2],
+            content=row[3],
+            session_id=row[4],
+            task_id=row[5],
+            importance=row[6],
+            keywords=json.loads(row[7]) if row[7] else [],
+            summary=row[8],
+            is_compacted=bool(row[9]),
+            access_count=row[10],
+            last_accessed=datetime.fromisoformat(row[11]) if row[11] else datetime.now(),
+            created_at=datetime.fromisoformat(row[12]) if row[12] else datetime.now(),
+        )
+
+    async def archive(self, item_id: str) -> None:
+        """归档条目（标记为低重要性或删除）"""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._sync_archive, item_id)
+
+    def _sync_archive(self, item_id: str) -> None:
+        # 归档：降低重要性或移动到归档表
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "UPDATE context_items_long SET importance = 0.1 WHERE id = ?",
+            (item_id,),
+        )
+        conn.commit()
+        conn.close()
 ```
 
 ### 3.5 ContextStore Facade
@@ -445,6 +697,18 @@ class ContextQuery:
 
         return merged
 
+    def _experience_to_item(self, experience: Experience) -> ContextItem:
+        """将 Experience 转换为 ContextItem"""
+        return ContextItem(
+            id=f"exp_{experience.id}",
+            type=ContextType.EXPERIENCE,
+            role="system",
+            content=f"[Experience] {experience.task_type}: {experience.summary}",
+            session_id=experience.session_id,
+            created_at=experience.created_at,
+            importance=0.8 if experience.success else 0.4,
+        )
+
     def _filter(
         self,
         items: List[ContextItem],
@@ -464,6 +728,12 @@ class ContextQuery:
             start, end = criteria.time_range
             result = [i for i in result
                       if start <= i.created_at <= end]
+
+        if criteria.keywords:
+            result = [
+                i for i in result
+                if any(kw.lower() in i.content.lower() for kw in criteria.keywords)
+            ]
 
         return result
 
@@ -529,10 +799,10 @@ class PromptContext:
     """组装后的 Prompt 上下文"""
     system: str
     messages: List[Dict[str, str]]
-    artifacts: List[Artifact]
-    token_count: int
-    sources: List[str]
-    context_items: List[ContextItem]  # 原始引用
+    artifacts: List[Artifact] = field(default_factory=list)
+    token_count: int = 0
+    sources: List[str] = field(default_factory=list)
+    context_items: List[ContextItem] = field(default_factory=list)
 
     def to_llm_messages(self) -> List[Dict[str, str]]:
         """转换为 LLM 消息格式"""
@@ -633,16 +903,14 @@ class ContextAssembler:
         return PromptContext(
             system=system,
             messages=messages,
-            artifacts=[],
+            artifacts=self._extract_artifacts(context_items),
             token_count=token_count,
             sources=sources,
             context_items=context_items,
         )
 
     def _build_system_prompt(self) -> str:
-        return self.SYSTEM_PROMPT_TEMPLATE.format(
-            max_tokens=self.config.max_tokens
-        )
+        return self.SYSTEM_PROMPT_TEMPLATE
 
     def _build_messages(
         self,
@@ -739,6 +1007,21 @@ class ContextAssembler:
         """获取用户偏好"""
         prefs = await self.store.long_term.get_preference(f"{session_id}:*")
         return prefs or {}
+
+    def _extract_artifacts(
+        self,
+        items: List[ContextItem],
+    ) -> List[Artifact]:
+        """从上下文条目中提取产物"""
+        artifacts = []
+        for item in items:
+            if item.type == ContextType.ARTIFACT:
+                artifacts.append(Artifact(
+                    id=item.id,
+                    type=ArtifactType.CODE,  # 默认类型
+                    content=item.content,
+                ))
+        return artifacts
 ```
 
 ---
@@ -1037,4 +1320,5 @@ class LongTermConfig:
 
 | 版本 | 日期 | 变更内容 |
 |------|------|----------|
+| v1.1 | 2026-03-29 | 修复审查问题：补全 ShortTermStore.query/delete 方法、补全 LongTermStore.get_low_importance/archive 方法、补全 WorkingStore.evict_lru 方法、添加 Experience/Artifact 类型定义、补全 LongTermStore schema 的 access_count/last_accessed 字段、修复 WorkingStore.query 返回顺序、补全 _filter 关键词过滤、添加 _experience_to_item 和 _extract_artifacts 辅助方法 |
 | v1.0 | 2026-03-29 | 初始版本，重新设计 Context 模块 |
