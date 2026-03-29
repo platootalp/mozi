@@ -238,35 +238,23 @@ async def list_sessions(
     list[dict[str, Any]]
         List of session dictionaries with message counts.
     """
-    from mozi.storage.session.file_storage import FileSessionStorage
     from mozi.storage.session.manager import SessionStore
-
-    # Determine base storage path (same pattern as _get_session_db_path)
-    project_config_dir = Path.cwd() / ".mozi"
-    if project_config_dir.exists() and project_config_dir.is_dir():
-        base_path = str(project_config_dir / "sessions")
-    else:
-        base_path = str(Path.home() / ".ai" / "sessions")
 
     # Get session database path
     db_path = _get_session_db_path()
     store = SessionStore(db_path)
 
     sessions = await store.list_sessions(limit=limit, offset=offset)
-    file_storage = FileSessionStorage(base_path)
 
     result = []
     for sess in sessions:
-        # Get message count from file storage
-        messages = await file_storage.load_messages(sess.id)
-
         result.append({
             "session_id": sess.id,
             "name": sess.name,
             "state": sess.status.value,
             "complexity_level": sess.complexity_level.value if sess.complexity_level else None,
             "created_at": sess.created_at.isoformat(),
-            "message_count": len(messages),
+            "message_count": sess.message_count,
         })
 
     return result
